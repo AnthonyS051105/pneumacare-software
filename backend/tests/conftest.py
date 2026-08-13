@@ -12,7 +12,7 @@ class TestConfig(Config):
 
 @pytest.fixture
 def app():
-    app = create_app(TestConfig)
+    app = create_app(TestConfig, start_mqtt=False)
     yield app
     with app.app_context():
         db.drop_all()

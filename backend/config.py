@@ -36,3 +36,23 @@ class Config:
 
     # 🔓 Ukuran rolling window trend analysis — menunggu konfirmasi Nathanael.
     TREND_ROLLING_WINDOW_SIZE = None  # TODO_NATHANAEL_CONFIRM
+
+    # --- Ingestion (Fase 1) ---
+
+    # Durasi segmen audio yang dibutuhkan modul inference (FR-SW-002, INTEGRATION_CONTRACT.md §2.2).
+    AUDIO_SEGMENT_DURATION_MS = 10_000
+
+    # ⚠️ Nilai diusulkan di SRS_SOFTWARE.md FR-SW-004, belum divalidasi tim — timeout heartbeat
+    # MQTT status sebelum device ditandai offline.
+    DEVICE_OFFLINE_TIMEOUT_SECONDS = 30  # TODO_CLINICAL_VALUE (nilai operasional, bukan medis, tapi tetap diusulkan)
+
+    # TODO_AUTH_NOT_IMPLEMENTED: INTEGRATION_CONTRACT.md §6 mengusulkan static bearer token untuk
+    # autentikasi device (websocket + MQTT). Belum diimplementasikan di Fase 1 — websocket dan MQTT
+    # subscriber saat ini menerima semua koneksi tanpa verifikasi token. Jangan anggap ini aman untuk
+    # deployment di luar jaringan lokal demo.
+    DEVICE_AUTH_TOKEN = os.environ.get("DEVICE_AUTH_TOKEN", "")
+
+    # mock_inference.py (FR-SW-013) — skenario dummy yang dipakai.
+    # "random": wheeze/crackle present dengan probabilitas rendah acak tiap segmen.
+    # "wheeze_rising": confidence wheeze naik bertahap tiap segmen berturut-turut, untuk demo trend analysis.
+    MOCK_INFERENCE_SCENARIO = os.environ.get("MOCK_INFERENCE_SCENARIO", "random")

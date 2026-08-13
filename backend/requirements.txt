@@ -5,6 +5,7 @@ Flask-Login==0.6.3
 python-dotenv==1.0.1
 paho-mqtt==2.1.0
 flask-sock==0.7.0
+websockets==13.1
 scipy==1.14.1
 numpy==2.1.2
 pytest==8.3.3
