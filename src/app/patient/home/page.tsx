@@ -57,6 +57,7 @@ export default function PatientHomePage() {
         patientName={DUMMY_PATIENT.name}
         patientId={DUMMY_PATIENT.patientId}
         statusLabel={DUMMY_PATIENT.statusLabel}
+        activeHref="/patient/home"
       />
       <PatientTopBar patientName={DUMMY_PATIENT.name} />
 
@@ -87,7 +88,7 @@ export default function PatientHomePage() {
         </p>
       </main>
 
-      <PatientBottomNav />
+      <PatientBottomNav activeHref="/patient/home" />
     </div>
   );
 }
