@@ -17,10 +17,12 @@ File di folder ini **disalin langsung** dari repo `Respiratory-Detector` milik N
 | Durasi segmen | **5 detik** (bukan 10 detik seperti asumsi awal di dokumen lain — sudah dikoreksi) |
 | Overlap default | 0.0 (tapi contoh di `test.py` pakai `overlap=4.75` untuk sliding window tiap 0.25 detik — opsi ini tersedia kalau tim mau granularitas prediksi lebih rapat) |
 | Jumlah mel filterbank | 50 |
-| Urutan kelas (dari `detector.py`) | `["none", "wheeze", "crackle", "both"]` — index 0,1,2,3 |
+| Urutan kelas | ✅ **Dikonfirmasi Nathanael: `["none", "crackle", "wheeze", "both"]`** — index 0,1,2,3. **BUKAN** `self.classes` yang tertulis di `detector.py` (itu bug, urutannya salah — jangan dipakai) |
 | Format confidence/probabilitas | Persentase (0-100), BUKAN fraksi 0-1 |
 | Cara load checkpoint | `checkpoint["state_dict"]`, filter key berawalan `"model."`, strip prefix `"model."`, load ke `self.model.model` (bukan `self.model` langsung — perhatikan nested attribute `.model.model`) |
 
 ⚠️ **Belum terverifikasi / perlu ditanyakan ke Nathanael:**
-- Urutan kelas di atas (`none, wheeze, crackle, both`) **tidak cocok** dengan urutan axis di gambar confusion matrix yang dikirim Tony (`none, crackles, wheezes, both` — posisi wheeze/crackle tertukar). Konfirmasi mana yang benar sebelum dipakai untuk interpretasi hasil ke pengguna.
 - Apakah `mobilenet_v3_small` ini pilihan final di antara 3 arsitektur yang dibandingkan di proposal (ResNet50/EfficientNet/MobileNet), atau masih salah satu kandidat yang diuji.
+
+✅ **Sudah terverifikasi (12 Agt 2026):**
+- Urutan kelas: `["none", "crackle", "wheeze", "both"]` — dikonfirmasi langsung oleh Nathanael. **Catatan penting**: literal `self.classes` di `detector.py` repo asli (`["none", "wheeze", "crackle", "both"]`) ternyata **bug**, tidak sesuai urutan training sesungguhnya. Kalau mengadaptasi kode dari `detector_reference_standalone.py`, jangan copy list ini apa adanya — pakai urutan terkonfirmasi di atas. Pertimbangkan beri tahu Nathanael soal bug ini supaya diperbaiki juga di repo dia.
