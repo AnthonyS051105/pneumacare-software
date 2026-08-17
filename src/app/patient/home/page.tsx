@@ -4,7 +4,10 @@ import { useEffect, useState } from "react";
 import { PatientSidebar } from "@/components/patient/PatientSidebar";
 import { PatientTopBar } from "@/components/patient/PatientTopBar";
 import { PatientBottomNav } from "@/components/patient/PatientBottomNav";
-import { StatusHeroCard, type StatusLevel } from "@/components/patient/StatusHeroCard";
+import {
+  StatusHeroCard,
+  type StatusLevel,
+} from "@/components/patient/StatusHeroCard";
 import { DeviceStatusStrip } from "@/components/patient/DeviceStatusStrip";
 import { VitalSummaryCard } from "@/components/patient/VitalSummaryCard";
 import { WearComplianceCard } from "@/components/patient/WearComplianceCard";
@@ -18,7 +21,10 @@ import { fetchPatientSummary, type PatientSummary } from "@/lib/patientApi";
 
 // status_label backend sudah persis "stable"/"attention"/"urgent" (StatusLevel) —
 // lihat ringkasan sesi penyambungan Fase 5 soal ini disamakan dengan Tony.
-const STATUS_LABEL_TO_LEVEL: Record<PatientSummary["status_label"], StatusLevel> = {
+const STATUS_LABEL_TO_LEVEL: Record<
+  PatientSummary["status_label"],
+  StatusLevel
+> = {
   stable: "stable",
   attention: "attention",
   urgent: "urgent",
@@ -34,8 +40,12 @@ function formatRelativeTime(isoTimestamp: string | null): string {
   return `${diffHours} jam yang lalu`;
 }
 
-function formatVitalRange(range: { min: number | null; max: number | null } | undefined, unit: string): string {
-  if (!range || range.min === null || range.max === null) return "Belum ada data hari ini";
+function formatVitalRange(
+  range: { min: number | null; max: number | null } | undefined,
+  unit: string,
+): string {
+  if (!range || range.min === null || range.max === null)
+    return "Belum ada data hari ini";
   if (range.min === range.max) return `hari ini ${range.min}${unit}`;
   return `hari ini ${range.min}–${range.max}${unit}`;
 }
@@ -55,7 +65,7 @@ export default function PatientHomePage() {
       setError(
         err instanceof ApiError
           ? err.message
-          : "Gagal memuat data. Periksa koneksi Anda dan coba lagi."
+          : "Gagal memuat data. Periksa koneksi Anda dan coba lagi.",
       );
     } finally {
       setLoading(false);
@@ -77,7 +87,10 @@ export default function PatientHomePage() {
   if (error || !summary) {
     return (
       <div className="min-h-screen bg-background p-6">
-        <ErrorState message={error ?? "Data tidak ditemukan."} onRetry={loadSummary} />
+        <ErrorState
+          message={error ?? "Data tidak ditemukan."}
+          onRetry={loadSummary}
+        />
       </div>
     );
   }
@@ -130,7 +143,11 @@ export default function PatientHomePage() {
 
         <DeviceStatusStrip
           connected={summary.device_connected}
-          signalLabel={summary.device_connected ? "Vest terhubung dengan baik" : "Vest tidak terhubung"}
+          signalLabel={
+            summary.device_connected
+              ? "Vest terhubung dengan baik"
+              : "Vest tidak terhubung"
+          }
           batteryPercent={null}
         />
 
@@ -146,28 +163,37 @@ export default function PatientHomePage() {
                 iconColorClass={vital.iconColorClass}
                 value={vital.value ?? 0}
                 unit={vital.unit}
-                rangeLabel={vital.value === null ? "Belum ada data" : vital.rangeLabel}
+                rangeLabel={
+                  vital.value === null ? "Belum ada data" : vital.rangeLabel
+                }
               />
             ))}
           </div>
         </section>
 
         {summary.wear_compliance_today_hours !== null && (
-          <WearComplianceCard hoursWorn={summary.wear_compliance_today_hours} targetHours={8} />
+          <WearComplianceCard
+            hoursWorn={summary.wear_compliance_today_hours}
+            targetHours={8}
+          />
         )}
 
         {summary.latest_classification !== null && (
           <ClassificationResultCard
             predictedClass={summary.latest_classification.predicted_class}
             confidence={summary.latest_classification.confidence}
-            timestampLabel={formatRelativeTime(summary.latest_classification.timestamp)}
+            timestampLabel={formatRelativeTime(
+              summary.latest_classification.timestamp,
+            )}
           />
         )}
 
         <QuickLinks />
 
         <p className="text-center text-xs text-on-surface-variant">
-          Data Simulasi &mdash; belum terhubung ke perangkat fisik.
+          {summary.device_connected
+            ? "Data langsung dari perangkat."
+            : "Data Simulasi — belum terhubung ke perangkat fisik."}
         </p>
       </main>
 
