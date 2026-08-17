@@ -1,10 +1,10 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from werkzeug.security import generate_password_hash
 
 from backend.models import db
 from backend.models.alert import Alert
-from backend.models.device import Device, DevicePairingCode
+from backend.models.device import Device, DevicePairingCode, DeviceStatusLog
 from backend.models.patient import Patient
 from backend.models.user import User
 from backend.models.vital import ReadingVital
@@ -53,9 +53,12 @@ def test_summary_returns_own_data(app, client):
 
     assert response.status_code == 200
     body = response.get_json()
-    assert body["status_label"] == "stabil"
+    assert body["status_label"] == "stable"
     assert body["device_connected"] is True
     assert body["latest_vitals"]["hr"] == 75
+    assert body["today_range"]["hr"] == {"min": 75, "max": 75}
+    assert body["wear_compliance_today_hours"] is not None
+    assert body["patient_id"] == "patient-1"
 
 
 def test_summary_as_clinician_returns_403(app, client):
@@ -80,7 +83,10 @@ def test_history_default_range(app, client):
     response = client.get("/api/v1/patient/me/history")
 
     assert response.status_code == 200
-    assert len(response.get_json()) == 1
+    body = response.get_json()
+    assert len(body["readings"]) == 1
+    assert body["stats"]["hr"]["current"] == 80
+    assert "wear_compliance_by_day" in body
 
 
 def test_history_invalid_range_returns_400(app, client):
@@ -199,3 +205,47 @@ def test_patient_cannot_access_clinician_only_endpoint(app, client):
     response = client.get("/api/v1/patients")
 
     assert response.status_code == 403
+
+
+def test_summary_wear_compliance_reflects_status_log(app, client):
+    _seed_patient_with_device(app)
+    with app.app_context():
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        db.session.add(
+            DeviceStatusLog(device_id="pneumacare-a1b2", status="online", changed_at=today_start + timedelta(hours=2))
+        )
+        db.session.add(
+            DeviceStatusLog(device_id="pneumacare-a1b2", status="offline", changed_at=today_start + timedelta(hours=6))
+        )
+        db.session.commit()
+    _login_patient(client)
+
+    response = client.get("/api/v1/patient/me/summary")
+
+    assert response.status_code == 200
+    assert response.get_json()["wear_compliance_today_hours"] == 4.0
+
+
+def test_history_wear_compliance_by_day_and_pattern_insight(app, client):
+    _seed_patient_with_device(app)
+    with app.app_context():
+        now = datetime.now(timezone.utc)
+        for hour, hr in [(8, 70), (9, 71), (20, 60), (21, 90)]:
+            db.session.add(
+                ReadingVital(
+                    device_id="pneumacare-a1b2",
+                    timestamp=now.replace(hour=hour, minute=0, second=0, microsecond=0),
+                    hr=hr,
+                    spo2=97,
+                    rr=16,
+                )
+            )
+        db.session.commit()
+    _login_patient(client)
+
+    response = client.get("/api/v1/patient/me/history?range=24h")
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert len(body["wear_compliance_by_day"]) == 1
+    assert body["pattern_insight"] is not None

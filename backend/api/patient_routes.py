@@ -11,11 +11,13 @@ from flask import Blueprint, jsonify, request
 from flask_login import current_user
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from backend.analytics.pattern_insight import VitalPoint, generate_pattern_insight
+from backend.analytics.wear_time import StatusChange, compute_daily_online_hours
 from backend.auth.alert_language import translate_alert
 from backend.auth.decorators import role_required
 from backend.models import db
 from backend.models.alert import Alert
-from backend.models.device import Device, DevicePairingCode
+from backend.models.device import Device, DevicePairingCode, DeviceStatusLog
 from backend.models.patient import Patient
 from backend.models.vital import ReadingVital
 
@@ -26,6 +28,55 @@ _RANGE_TO_TIMEDELTA = {"24h": timedelta(hours=24), "7d": timedelta(days=7), "30d
 
 def _current_patient() -> Patient | None:
     return db.session.query(Patient).filter_by(user_id=current_user.id).first()
+
+
+def _vital_range(values: list[float]) -> dict:
+    return {"min": min(values), "max": max(values)} if values else {"min": None, "max": None}
+
+
+def _today_range(device_id: str) -> dict:
+    now = datetime.now(timezone.utc)
+    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    readings = (
+        db.session.query(ReadingVital)
+        .filter(ReadingVital.device_id == device_id, ReadingVital.timestamp >= day_start)
+        .all()
+    )
+    return {
+        "hr": _vital_range([r.hr for r in readings if r.hr is not None]),
+        "spo2": _vital_range([r.spo2 for r in readings if r.spo2 is not None]),
+        "rr": _vital_range([r.rr for r in readings if r.rr is not None]),
+    }
+
+
+def _wear_compliance_for_day(device_id: str, day_start: datetime) -> float:
+    # SQLite/SQLAlchemy menyimpan datetime sebagai naive (tanpa tzinfo) meski yang
+    # ditulis adalah aware UTC (lihat ingestion/mqtt_subscriber.py) — dibaca kembali
+    # tanpa tzinfo. Samakan day_start/day_end ke naive UTC di sini SEBELUM
+    # dibandingkan langsung dengan row.changed_at, supaya tidak TypeError.
+    day_start_naive = day_start.replace(tzinfo=None) if day_start.tzinfo else day_start
+    day_end_naive = day_start_naive + timedelta(days=1)
+
+    changes_query = (
+        db.session.query(DeviceStatusLog)
+        .filter(DeviceStatusLog.device_id == device_id, DeviceStatusLog.changed_at < day_end_naive)
+        .order_by(DeviceStatusLog.changed_at.asc())
+        .all()
+    )
+
+    # status_before_range: status terakhir SEBELUM day_start (baris paling akhir yang
+    # changed_at < day_start), default "offline" bila belum ada riwayat sama sekali.
+    status_before = "offline"
+    changes_in_range: list[StatusChange] = []
+    for row in changes_query:
+        if row.changed_at < day_start_naive:
+            status_before = row.status
+        else:
+            changes_in_range.append(StatusChange(row.status, row.changed_at))
+
+    return compute_daily_online_hours(
+        changes_in_range, day_start_naive, day_end_naive, status_before_range=status_before
+    )
 
 
 @patient_bp.get("/summary")
@@ -52,12 +103,21 @@ def summary():
         .first()
     )
     # FR-SW-065: status traffic-light bahasa awam, BUKAN istilah klinis mentah.
-    status_label = "stabil"
+    # Nilai "stable"/"attention"/"urgent" dipilih SESUAI StatusLevel di
+    # src/components/patient/StatusHeroCard.tsx (frontend) — bukan "stabil"/dst.
+    status_label = "stable"
     if latest_alert is not None and not latest_alert.acknowledged:
-        status_label = "segera_hubungi_dokter" if latest_alert.level == 3 else "perlu_diperhatikan"
+        status_label = "urgent" if latest_alert.level == 3 else "attention"
+
+    today_range = _today_range(device.device_id) if device is not None else None
+    wear_hours_today = _wear_compliance_for_day(
+        device.device_id, datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    ) if device is not None else None
 
     return jsonify(
         {
+            "patient_id": patient.id,
+            "patient_name": patient.name,
             "status_label": status_label,
             "device_connected": device.status == "online" if device is not None else False,
             "latest_vitals": {
@@ -66,13 +126,29 @@ def summary():
                 "rr": latest_vital.rr if latest_vital else None,
                 "timestamp": latest_vital.timestamp.isoformat() if latest_vital else None,
             },
+            "today_range": today_range,
+            "wear_compliance_today_hours": wear_hours_today,
         }
     )
+
+
+def _stats_for(values: list[float]) -> dict:
+    if not values:
+        return {"current": None, "avg": None, "min": None, "max": None}
+    return {
+        "current": round(values[-1], 1),
+        "avg": round(sum(values) / len(values), 1),
+        "min": round(min(values), 1),
+        "max": round(max(values), 1),
+    }
 
 
 @patient_bp.get("/history")
 @role_required("pasien")
 def history():
+    """Response diperluas dari versi sebelumnya (array readings polos) menjadi objek
+    dengan `readings` + `stats` + `wear_compliance_by_day` + `pattern_insight` — lihat
+    ringkasan sesi Fase 5 untuk detail perbedaan field yang dilaporkan ke Tony."""
     patient = _current_patient()
     if patient is None:
         return jsonify({"error": "data pasien tidak ditemukan"}), 404
@@ -84,17 +160,47 @@ def history():
 
     device = db.session.query(Device).filter_by(patient_id=patient.id).first()
     if device is None:
-        return jsonify([])
+        return jsonify(
+            {"readings": [], "stats": {}, "wear_compliance_by_day": [], "pattern_insight": None}
+        )
 
-    since = datetime.now(timezone.utc) - delta
+    now = datetime.now(timezone.utc)
+    since = now - delta
     readings = (
         db.session.query(ReadingVital)
         .filter(ReadingVital.device_id == device.device_id, ReadingVital.timestamp >= since)
         .order_by(ReadingVital.timestamp.asc())
         .all()
     )
+
+    hr_values = [r.hr for r in readings if r.hr is not None]
+    spo2_values = [r.spo2 for r in readings if r.spo2 is not None]
+    rr_values = [r.rr for r in readings if r.rr is not None]
+
+    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    n_days = max(1, delta.days) if delta.days > 0 else 1
+    wear_compliance_by_day = [
+        {
+            "date": (day_start - timedelta(days=offset)).date().isoformat(),
+            "hours": _wear_compliance_for_day(device.device_id, day_start - timedelta(days=offset)),
+        }
+        for offset in range(n_days - 1, -1, -1)
+    ]
+
+    pattern_insight = generate_pattern_insight(
+        [VitalPoint(timestamp=r.timestamp, hr=r.hr) for r in readings]
+    )
+
     return jsonify(
-        [{"hr": r.hr, "spo2": r.spo2, "rr": r.rr, "timestamp": r.timestamp.isoformat()} for r in readings]
+        {
+            "readings": [
+                {"hr": r.hr, "spo2": r.spo2, "rr": r.rr, "timestamp": r.timestamp.isoformat()}
+                for r in readings
+            ],
+            "stats": {"hr": _stats_for(hr_values), "spo2": _stats_for(spo2_values), "rr": _stats_for(rr_values)},
+            "wear_compliance_by_day": wear_compliance_by_day,
+            "pattern_insight": pattern_insight,
+        }
     )
 
 
