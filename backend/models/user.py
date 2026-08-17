@@ -1,9 +1,11 @@
 import uuid
 
+from flask_login import UserMixin
+
 from backend.models import db
 
 
-class User(db.Model):
+class User(UserMixin, db.Model):
     __tablename__ = "users"
 
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -15,3 +17,8 @@ class User(db.Model):
     institution = db.Column(db.String(255), nullable=True)
     # ⚠️ Field teks bebas tanpa verifikasi — BUKAN verifikasi profesi sungguhan (SDD_SOFTWARE.md §3)
     str_sip_number = db.Column(db.String(100), nullable=True)
+
+    def get_id(self) -> str:
+        # UserMixin default sudah pakai self.id, override eksplisit untuk kejelasan
+        # karena PK di sini adalah string UUID, bukan integer.
+        return self.id
