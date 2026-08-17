@@ -108,3 +108,22 @@ class Config:
     # tidak mungkin > 100%; batas bawah longgar sekadar filter noise ekstrem.
     SPO2_PLAUSIBLE_MIN_PERCENT = 50  # TODO_CLINICAL_VALUE
     SPO2_PLAUSIBLE_MAX_PERCENT = 100
+
+    # --- Alert Engine (Fase 3) ---
+
+    # 🧩 Jumlah evaluasi trend_event berturut-turut dengan significant=true yang dibutuhkan
+    # supaya trigger trend_slope dieskalasi ke alert level 3 sendirian (tanpa trigger lain) —
+    # INTEGRATION_CONTRACT.md §5.1 v2, SDD_SOFTWARE.md §7.2. Ini PARAMETER TUNING SISTEM,
+    # BUKAN nilai medis final — dipilih 3 sebagai keseimbangan awal antara sensitif terhadap
+    # tren nyata vs tidak gampang false-alarm dari 1 kali salah baca model AI (akurasi ~73%).
+    # WAJIB divalidasi ulang setelah ada data simulasi yang representatif.
+    TREND_PERSISTENCE_MIN_CONSECUTIVE = 3  # TODO_CLINICAL_VALUE (parameter tuning, bukan medis)
+
+    # 🧩 Margin "near-threshold" untuk Level 1 (informasi) — INTEGRATION_CONTRACT.md §5.1 v3,
+    # SDD_SOFTWARE.md §7.5. Didefinisikan RELATIF terhadap ambang (bukan angka absolut) karena
+    # ambang klinis sendiri masih TODO_CLINICAL_VALUE — begitu ambang final diisi, margin ini
+    # otomatis ikut menyesuaikan. Ini HEURISTIK TUNING, BUKAN nilai medis yang divalidasi —
+    # WAJIB direview ulang begitu ambang klinis sungguhan tersedia, idealnya oleh orang dengan
+    # latar belakang medis, bukan diputuskan sendiri oleh tim teknis.
+    LEVEL1_MARGIN_PCT = 0.10  # TODO_CLINICAL_VALUE — untuk HR/RR (parameter dua-sisi, min & max)
+    LEVEL1_MARGIN_SPO2_ABS = 2  # TODO_CLINICAL_VALUE — poin persentase SpO2 (parameter satu-sisi, hanya min)
