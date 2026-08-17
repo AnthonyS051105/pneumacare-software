@@ -17,12 +17,16 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import random
 import struct
 import time
 
 import paho.mqtt.client as mqtt
 import websockets
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("simulate_esp32")
@@ -39,6 +43,12 @@ PPG_PUBLISH_INTERVAL_S = 2
 STATUS_PUBLISH_INTERVAL_S = 5
 CHANNEL_IDS = (1, 2, 3, 4)
 
+# Token statis dipakai sebagai bearer WS dan password MQTT device, sesuai
+# INTEGRATION_CONTRACT.md §6 — sama seperti DEVICE_AUTH_TOKEN di backend/.env dan
+# password user device di backend/mosquitto/passwd (lihat backend/mosquitto/README.md).
+DEVICE_AUTH_TOKEN = os.environ.get("DEVICE_AUTH_TOKEN", "")
+MQTT_DEVICE_USERNAME = os.environ.get("MQTT_DEVICE_USERNAME", "pneumacare-device")
+
 
 def _generate_pcm_chunk(sample_rate: int, duration_ms: int) -> bytes:
     n_samples = int(sample_rate * duration_ms / 1000)
@@ -49,8 +59,9 @@ def _generate_pcm_chunk(sample_rate: int, duration_ms: int) -> bytes:
 async def _stream_audio(host: str, ws_port: int, duration_s: float) -> None:
     uri = f"ws://{host}:{ws_port}/ws/audio"
     seq_no_per_channel = {ch: 0 for ch in CHANNEL_IDS}
+    extra_headers = {"Authorization": f"Bearer {DEVICE_AUTH_TOKEN}"} if DEVICE_AUTH_TOKEN else {}
 
-    async with websockets.connect(uri) as ws:
+    async with websockets.connect(uri, extra_headers=extra_headers) as ws:
         logger.info("audio: terhubung ke %s", uri)
         start = time.monotonic()
         channel_cycle = iter(())
@@ -82,6 +93,8 @@ async def _stream_audio(host: str, ws_port: int, duration_s: float) -> None:
 
 def _publish_ppg_and_status(host: str, mqtt_port: int, duration_s: float) -> None:
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    if DEVICE_AUTH_TOKEN:
+        client.username_pw_set(MQTT_DEVICE_USERNAME, DEVICE_AUTH_TOKEN)
     client.connect(host, mqtt_port)
     client.loop_start()
     logger.info("mqtt: terhubung ke %s:%s", host, mqtt_port)

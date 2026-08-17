@@ -55,10 +55,12 @@ class Config:
     # MQTT status sebelum device ditandai offline.
     DEVICE_OFFLINE_TIMEOUT_SECONDS = 30  # TODO_CLINICAL_VALUE (nilai operasional, bukan medis, tapi tetap diusulkan)
 
-    # TODO_AUTH_NOT_IMPLEMENTED: INTEGRATION_CONTRACT.md §6 mengusulkan static bearer token untuk
-    # autentikasi device (websocket + MQTT). Belum diimplementasikan di Fase 1 — websocket dan MQTT
-    # subscriber saat ini menerima semua koneksi tanpa verifikasi token. Jangan anggap ini aman untuk
-    # deployment di luar jaringan lokal demo.
+    # Token statis sesuai INTEGRATION_CONTRACT.md §6 — divalidasi di /ws/audio (header
+    # `Authorization: Bearer <token>`, lihat websocket_server.py). Untuk MQTT, device
+    # mengirim token yang SAMA sebagai password MQTT (lihat backend/mosquitto/README.md
+    # untuk setup password_file broker). Baseline demo, BUKAN autentikasi kelas produksi
+    # (tidak ada rotasi/expiry per device). Jangan anggap aman untuk deployment di luar
+    # jaringan lokal demo.
     DEVICE_AUTH_TOKEN = os.environ.get("DEVICE_AUTH_TOKEN", "")
 
     # mock_inference.py (FR-SW-013) — skenario dummy yang dipakai.

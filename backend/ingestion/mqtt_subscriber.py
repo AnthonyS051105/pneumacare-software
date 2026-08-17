@@ -89,9 +89,15 @@ def create_mqtt_client(app) -> mqtt.Client:
     username = app.config.get("MQTT_USERNAME")
     password = app.config.get("MQTT_PASSWORD")
     if username:
-        # TODO_AUTH_NOT_IMPLEMENTED: lihat INTEGRATION_CONTRACT.md §6 — auth device belum
-        # diwajibkan, ini hanya dipakai kalau broker dikonfigurasi butuh username/password.
+        # Kredensial client subscriber backend sendiri ke broker — sesuai INTEGRATION_CONTRACT.md
+        # §6, broker (mosquitto.conf) sekarang allow_anonymous false, jadi ini WAJIB diisi
+        # (lihat backend/mosquitto/README.md untuk cara generate password_file & user ini).
         client.username_pw_set(username, password or None)
+    else:
+        logger.warning(
+            "MQTT_USERNAME kosong — broker sudah allow_anonymous false, koneksi subscriber "
+            "backend kemungkinan akan ditolak. Lihat backend/mosquitto/README.md"
+        )
 
     def on_connect(client, userdata, flags, reason_code, properties=None):
         if reason_code != 0:

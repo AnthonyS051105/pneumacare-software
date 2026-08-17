@@ -1,6 +1,10 @@
+import logging
+
 from flask import Flask
 from flask_cors import CORS
 from flask_login import LoginManager
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 from backend.api.clinician_routes import clinician_bp
 from backend.api.patient_routes import patient_bp
@@ -65,4 +69,6 @@ def create_app(config_class: type = Config, start_mqtt: bool = True) -> Flask:
 app = create_app()
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    # host=0.0.0.0: harus bisa diakses dari device lain di jaringan lokal (ESP32),
+    # bukan cuma localhost — default Flask (127.0.0.1) menolak koneksi LAN.
+    app.run(host="0.0.0.0", debug=True, port=5000)

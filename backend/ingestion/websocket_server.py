@@ -11,7 +11,7 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from flask import current_app
+from flask import current_app, request
 from flask_sock import Sock
 
 from backend.inference.inference_service import run_inference
@@ -25,9 +25,23 @@ logger = logging.getLogger(__name__)
 
 sock = Sock()
 
-# TODO_AUTH_NOT_IMPLEMENTED: lihat config.py DEVICE_AUTH_TOKEN — endpoint ini belum
-# memvalidasi token apapun (INTEGRATION_CONTRACT.md §6).
+# Validasi bearer token statis sesuai INTEGRATION_CONTRACT.md §6 — baseline demo,
+# BUKAN autentikasi kelas produksi (tidak ada rotasi/expiry per device).
 _segment_buffer = AudioSegmentBuffer()
+
+
+def _is_authorized(headers) -> bool:
+    expected_token = current_app.config.get("DEVICE_AUTH_TOKEN", "")
+    if not expected_token:
+        # Token belum dikonfigurasi di backend (dev tanpa .env) — jangan kunci semua
+        # device di luar, tapi log jelas supaya tidak dianggap aman diam-diam.
+        logger.warning("DEVICE_AUTH_TOKEN kosong di backend — /ws/audio menerima semua koneksi")
+        return True
+
+    auth_header = headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return False
+    return auth_header[len("Bearer ") :] == expected_token
 
 
 def _decode_pcm_base64(pcm_base64: str) -> list[int]:
@@ -100,6 +114,11 @@ def register_websocket_routes(app) -> None:
 
     @sock.route("/ws/audio")
     def ws_audio(ws):
+        if not _is_authorized(request.headers):
+            logger.warning("koneksi /ws/audio ditolak: token Authorization tidak valid")
+            ws.close(reason=1008, message=b"unauthorized")
+            return
+
         device_id_for_reset: tuple[str, int] | None = None
         try:
             while True:

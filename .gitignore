@@ -48,6 +48,9 @@ backend/*.db
 backend/.pytest_cache/
 backend/.coverage
 backend/mosquitto/data/
+backend/mosquitto/passwd
+instance/
+backend/instance/
 ai_reference/__pycache__/
 
 # model checkpoint Model A (bisa ratusan MB) — path aktual di-set via env var
