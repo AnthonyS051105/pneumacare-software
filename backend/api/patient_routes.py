@@ -17,6 +17,7 @@ from backend.auth.alert_language import translate_alert
 from backend.auth.decorators import role_required
 from backend.models import db
 from backend.models.alert import Alert
+from backend.models.classification import ReadingClassification
 from backend.models.device import Device, DevicePairingCode, DeviceStatusLog
 from backend.models.patient import Patient
 from backend.models.vital import ReadingVital
@@ -88,11 +89,18 @@ def summary():
 
     device = db.session.query(Device).filter_by(patient_id=patient.id).first()
     latest_vital = None
+    latest_classification = None
     if device is not None:
         latest_vital = (
             db.session.query(ReadingVital)
             .filter_by(device_id=device.device_id)
             .order_by(ReadingVital.timestamp.desc())
+            .first()
+        )
+        latest_classification = (
+            db.session.query(ReadingClassification)
+            .filter_by(device_id=device.device_id)
+            .order_by(ReadingClassification.segment_end.desc())
             .first()
         )
 
@@ -128,6 +136,16 @@ def summary():
             },
             "today_range": today_range,
             "wear_compliance_today_hours": wear_hours_today,
+            # Hasil terbaru Model A (wheeze/crackle CNN) — FR-SW checkpoint 50%,
+            # ditampilkan apa adanya sebagai indikasi skrining, BUKAN diagnosis
+            # (lihat batasan framing di keputusan_terkunci.md).
+            "latest_classification": {
+                "predicted_class": latest_classification.wheeze_crackle_class,
+                "confidence": latest_classification.wheeze_crackle_confidence,
+                "timestamp": latest_classification.segment_end.isoformat(),
+            }
+            if latest_classification is not None
+            else None,
         }
     )
 

@@ -4,6 +4,7 @@ from werkzeug.security import generate_password_hash
 
 from backend.models import db
 from backend.models.alert import Alert
+from backend.models.classification import ReadingClassification
 from backend.models.device import Device, DevicePairingCode, DeviceStatusLog
 from backend.models.patient import Patient
 from backend.models.user import User
@@ -59,6 +60,35 @@ def test_summary_returns_own_data(app, client):
     assert body["today_range"]["hr"] == {"min": 75, "max": 75}
     assert body["wear_compliance_today_hours"] is not None
     assert body["patient_id"] == "patient-1"
+    assert body["latest_classification"] is None
+
+
+def test_summary_includes_latest_classification(app, client):
+    _seed_patient_with_device(app)
+    with app.app_context():
+        now = datetime.now(timezone.utc)
+        db.session.add(
+            ReadingClassification(
+                id="segment-1",
+                device_id="pneumacare-a1b2",
+                channel_id=1,
+                segment_start=now - timedelta(seconds=5),
+                segment_end=now,
+                wheeze_crackle_class="wheeze",
+                wheeze_crackle_confidence=0.87,
+                wheeze_crackle_probabilities=[0.05, 0.03, 0.87, 0.05],
+                wheeze_crackle_model_version="mobilenet_v3_small_epoch05_valloss0.9021",
+            )
+        )
+        db.session.commit()
+    _login_patient(client)
+
+    response = client.get("/api/v1/patient/me/summary")
+
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["latest_classification"]["predicted_class"] == "wheeze"
+    assert body["latest_classification"]["confidence"] == 0.87
 
 
 def test_summary_as_clinician_returns_403(app, client):

@@ -19,6 +19,11 @@ export type PatientSummary = {
   };
   today_range: { hr: VitalRange; spo2: VitalRange; rr: VitalRange } | null;
   wear_compliance_today_hours: number | null;
+  latest_classification: {
+    predicted_class: "none" | "crackle" | "wheeze" | "both";
+    confidence: number;
+    timestamp: string;
+  } | null;
 };
 
 export function fetchPatientSummary(): Promise<PatientSummary> {

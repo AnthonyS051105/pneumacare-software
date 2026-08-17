@@ -8,6 +8,7 @@ import { StatusHeroCard, type StatusLevel } from "@/components/patient/StatusHer
 import { DeviceStatusStrip } from "@/components/patient/DeviceStatusStrip";
 import { VitalSummaryCard } from "@/components/patient/VitalSummaryCard";
 import { WearComplianceCard } from "@/components/patient/WearComplianceCard";
+import { ClassificationResultCard } from "@/components/patient/ClassificationResultCard";
 import { QuickLinks } from "@/components/patient/QuickLinks";
 import { LoadingState } from "@/components/patient/shared/LoadingState";
 import { ErrorState } from "@/components/patient/shared/ErrorState";
@@ -153,6 +154,14 @@ export default function PatientHomePage() {
 
         {summary.wear_compliance_today_hours !== null && (
           <WearComplianceCard hoursWorn={summary.wear_compliance_today_hours} targetHours={8} />
+        )}
+
+        {summary.latest_classification !== null && (
+          <ClassificationResultCard
+            predictedClass={summary.latest_classification.predicted_class}
+            confidence={summary.latest_classification.confidence}
+            timestampLabel={formatRelativeTime(summary.latest_classification.timestamp)}
+          />
         )}
 
         <QuickLinks />

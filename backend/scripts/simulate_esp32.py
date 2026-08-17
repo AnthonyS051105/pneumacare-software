@@ -26,7 +26,10 @@ import paho.mqtt.client as mqtt
 import websockets
 from dotenv import load_dotenv
 
-load_dotenv()
+# Path eksplisit ke backend/.env (bukan auto-search load_dotenv() ke atas dari cwd) —
+# auto-search bisa salah menemukan .env lain di direktori leluhur duluan. Lihat
+# backend/config.py untuk penjelasan sama.
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("simulate_esp32")

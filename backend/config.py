@@ -2,9 +2,12 @@ import os
 
 from dotenv import load_dotenv
 
-load_dotenv()
-
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+
+# Path eksplisit (bukan auto-search load_dotenv() ke atas dari cwd) — auto-search
+# bisa salah menemukan .env lain di direktori leluhur (mis. ~/.env milik tool lain)
+# duluan sebelum mencapai backend/.env, membuat semua config di sini diam-diam kosong.
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 
 class Config:

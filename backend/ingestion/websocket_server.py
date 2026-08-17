@@ -14,12 +14,16 @@ from datetime import datetime, timezone
 from flask import current_app, request
 from flask_sock import Sock
 
+from backend.alerting.alert_engine import VitalReading
+from backend.alerting.alert_service import evaluate_and_save_alert
 from backend.inference.inference_service import run_inference
 from backend.inference.mock_inference import run_mock_inference
 from backend.ingestion.audio_segment_buffer import AudioSegmentBuffer, Segment
 from backend.ingestion.device_registry import upsert_device_seen
 from backend.models import db
 from backend.models.classification import ReadingClassification
+from backend.models.vital import ReadingVital
+from backend.trend_analysis.trend_service import compute_and_save_trend
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +111,22 @@ def _handle_segment(segment: Segment) -> None:
         result["wheeze_crackle"]["predicted_class"],
         result["wheeze_crackle"]["confidence"],
     )
+
+    app = current_app._get_current_object()
+    trend_result = compute_and_save_trend(app, segment.device_id, segment.channel_id)
+
+    latest_vital = (
+        db.session.query(ReadingVital)
+        .filter_by(device_id=segment.device_id)
+        .order_by(ReadingVital.timestamp.desc())
+        .first()
+    )
+    vitals = VitalReading(
+        hr=latest_vital.hr if latest_vital is not None else None,
+        spo2=latest_vital.spo2 if latest_vital is not None else None,
+        rr=latest_vital.rr if latest_vital is not None else None,
+    )
+    evaluate_and_save_alert(app, device_id=segment.device_id, vitals=vitals, trend_result=trend_result)
 
 
 def register_websocket_routes(app) -> None:
