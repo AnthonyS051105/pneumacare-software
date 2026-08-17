@@ -28,7 +28,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger("simulate_esp32")
 
 DEVICE_ID = "pneumacare-a1b2"
-AUDIO_SAMPLE_RATE = 4000
+# ✅ Sample rate akuisisi mentah firmware (native rate mikrofon, contoh INMP441 —
+# INTEGRATION_CONTRACT.md §2.3), BUKAN 22000 Hz target model. Backend resample ke
+# 22000 Hz saat preprocessing (§4.1) — simulator sengaja TIDAK mengirim di 22000 Hz
+# supaya jalur resample sungguhan ikut teruji, bukan cuma no-op.
+AUDIO_SAMPLE_RATE = 16000
 AUDIO_CHUNK_DURATION_MS = 1000
 PPG_SAMPLE_RATE_HZ = 100  # ⚠️ contoh dari INTEGRATION_CONTRACT.md §3.3, belum final
 PPG_PUBLISH_INTERVAL_S = 2

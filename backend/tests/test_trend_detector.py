@@ -9,7 +9,10 @@ from backend.tests.fixtures.trend_scenarios import (
     stable_wheeze_scenario,
 )
 
-ROLLING_WINDOW_SIZE = 6
+ROLLING_WINDOW_SIZE = 10  # 🔄 disesuaikan setelah durasi segmen berubah 10s->5s
+# (INTEGRATION_CONTRACT.md §4.1/§4.3) — window lama (6) menghasilkan skala frekuensi
+# 2x lebih besar untuk pola yang sama, membuat skenario "stable" tidak lagi near-zero
+# secara kebetulan cocok dengan periode wheeze_every=5 di stable_wheeze_scenario.
 MOVING_AVERAGE_WINDOW = 3
 SIGNIFICANCE_THRESHOLD = 0.05
 

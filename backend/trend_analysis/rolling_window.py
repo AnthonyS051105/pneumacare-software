@@ -4,19 +4,35 @@ hasil klasifikasi per segmen (FR-SW-020, FR-SW-021, SDD_SOFTWARE.md §6).
 Fungsi murni, tanpa I/O — input: list event klasifikasi terurut waktu, output:
 list titik (timestamp, frekuensi) yang jadi input untuk moving average + regresi
 linear di trend_detector.py.
+
+🔄 Direvisi 2026-08-17 — `ClassificationEvent` sebelumnya pakai dua bool independen
+(`wheeze_present`/`crackle_present`), TIDAK sesuai skema Model A sungguhan yang
+single-label 4-kelas (INTEGRATION_CONTRACT.md §4.1). Sekarang menyimpan
+`wheeze_crackle_class` langsung; `wheeze_present`/`crackle_present` diturunkan darinya
+sebagai property (kelas "both" berarti KEDUANYA hadir bersamaan).
 """
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Literal
+
+WheezeCrackleClass = Literal["none", "crackle", "wheeze", "both"]
 
 
 @dataclass(frozen=True)
 class ClassificationEvent:
-    """Satu hasil klasifikasi segmen (subset field dari readings_severity)."""
+    """Satu hasil klasifikasi segmen (subset field dari readings_classification)."""
 
     timestamp: datetime
-    wheeze_present: bool
-    crackle_present: bool
+    wheeze_crackle_class: WheezeCrackleClass
+
+    @property
+    def wheeze_present(self) -> bool:
+        return self.wheeze_crackle_class in ("wheeze", "both")
+
+    @property
+    def crackle_present(self) -> bool:
+        return self.wheeze_crackle_class in ("crackle", "both")
 
 
 @dataclass(frozen=True)

@@ -1,7 +1,14 @@
-"""Logika murni penyusunan ulang chunk audio kecil menjadi segmen 10 detik.
+"""Logika murni penyusunan ulang chunk audio kecil menjadi segmen 5 detik
+(INTEGRATION_CONTRACT.md §2.2, §4.1 — durasi segmen model dikoreksi dari asumsi
+awal 10 detik menjadi 5 detik, terverifikasi dari kode preprocessing asli Nathanael).
 
-Dipisahkan dari I/O (websocket) supaya mudah di-unit-test (FR-SW-002,
-INTEGRATION_CONTRACT.md §2.2) — lihat pola yang sama di trend_analysis (SDD_SOFTWARE.md §6).
+Dipisahkan dari I/O (websocket) supaya mudah di-unit-test (FR-SW-002) — lihat pola
+yang sama di trend_analysis (SDD_SOFTWARE.md §6).
+
+⚠️ Sample rate yang disimpan di sini adalah sample rate ASLI FIRMWARE (mis. 16000 Hz,
+dari header chunk — INTEGRATION_CONTRACT.md §2.3), BUKAN 22000 Hz target model.
+Resample ke 22000 Hz dilakukan SEKALI di `inference/preprocessing.py` atas segmen
+5 detik penuh, bukan per-chunk kecil — lihat docstring modul itu untuk alasannya.
 """
 
 from dataclasses import dataclass, field
@@ -22,6 +29,7 @@ class Segment:
     segment_start_ms: int
     segment_end_ms: int
     pcm_samples: list[int]
+    sample_rate: int
 
 
 @dataclass
@@ -30,6 +38,7 @@ class _ChannelBuffer:
     segment_start_ms: int | None = None
     accumulated_ms: int = 0
     last_seq_no: int | None = None
+    sample_rate: int | None = None
 
 
 class AudioSegmentBuffer:
@@ -39,7 +48,7 @@ class AudioSegmentBuffer:
     hanya saat buffer sudah genap durasi segmen dan buffer direset untuk segmen berikutnya.
     """
 
-    def __init__(self, segment_duration_ms: int = 10_000) -> None:
+    def __init__(self, segment_duration_ms: int = 5_000) -> None:
         self._segment_duration_ms = segment_duration_ms
         self._buffers: dict[tuple[str, int], _ChannelBuffer] = {}
 
@@ -51,6 +60,7 @@ class AudioSegmentBuffer:
         seq_no: int,
         chunk_duration_ms: int,
         pcm_samples: list[int],
+        sample_rate: int,
     ) -> tuple[Segment | None, GapEvent | None]:
         key = (device_id, channel_id)
         buf = self._buffers.setdefault(key, _ChannelBuffer())
@@ -67,6 +77,7 @@ class AudioSegmentBuffer:
 
         if buf.segment_start_ms is None:
             buf.segment_start_ms = timestamp_ms
+            buf.sample_rate = sample_rate
 
         buf.pcm_samples.extend(pcm_samples)
         buf.accumulated_ms += chunk_duration_ms
@@ -79,6 +90,7 @@ class AudioSegmentBuffer:
                 segment_start_ms=buf.segment_start_ms,
                 segment_end_ms=buf.segment_start_ms + buf.accumulated_ms,
                 pcm_samples=buf.pcm_samples,
+                sample_rate=buf.sample_rate,
             )
             self._buffers[key] = _ChannelBuffer(last_seq_no=buf.last_seq_no)
 

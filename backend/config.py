@@ -47,8 +47,9 @@ class Config:
 
     # --- Ingestion (Fase 1) ---
 
-    # Durasi segmen audio yang dibutuhkan modul inference (FR-SW-002, INTEGRATION_CONTRACT.md §2.2).
-    AUDIO_SEGMENT_DURATION_MS = 10_000
+    # ✅ Durasi segmen audio Model A — 5 detik, dikoreksi dari asumsi awal 10 detik
+    # (terverifikasi dari ai_reference/model.py, INTEGRATION_CONTRACT.md §4.1).
+    AUDIO_SEGMENT_DURATION_MS = 5_000
 
     # ⚠️ Nilai diusulkan di SRS_SOFTWARE.md FR-SW-004, belum divalidasi tim — timeout heartbeat
     # MQTT status sebelum device ditandai offline.
@@ -61,9 +62,23 @@ class Config:
     DEVICE_AUTH_TOKEN = os.environ.get("DEVICE_AUTH_TOKEN", "")
 
     # mock_inference.py (FR-SW-013) — skenario dummy yang dipakai.
-    # "random": wheeze/crackle present dengan probabilitas rendah acak tiap segmen.
-    # "wheeze_rising": confidence wheeze naik bertahap tiap segmen berturut-turut, untuk demo trend analysis.
+    # "random": probabilitas 4-kelas acak (dinormalisasi supaya total 1.0) tiap segmen.
+    # "wheeze_rising": probabilitas kelas "wheeze" naik bertahap tiap segmen berturut-turut, untuk demo trend analysis.
     MOCK_INFERENCE_SCENARIO = os.environ.get("MOCK_INFERENCE_SCENARIO", "random")
+
+    # --- Model A: Wheeze/Crackle CNN (Fase 6) ---
+
+    # Path checkpoint PyTorch Lightning Model A (INTEGRATION_CONTRACT.md §4.1). Kosong
+    # (default) berarti checkpoint belum tersedia di environment ini — backend HARUS
+    # fallback otomatis ke mock_inference dengan log warning jelas (SDD_SOFTWARE.md §9),
+    # bukan crash saat startup.
+    MODEL_A_CHECKPOINT_PATH = os.environ.get("MODEL_A_CHECKPOINT_PATH", "")
+
+    # Dipakai untuk mengisi kolom wheeze_crackle_model_version di DB dan field
+    # model_version di skema output (§4.1) — identifikasi checkpoint mana yang dipakai
+    # untuk keperluan traceability/debug demo, TIDAK mengklaim model ini final/optimal
+    # (val_loss checkpoint epoch 5 masih menurun, lihat INTEGRATION_CONTRACT.md §4.1).
+    MODEL_A_VERSION = os.environ.get("MODEL_A_VERSION", "mobilenet_v3_small_epoch05_valloss0.9021")
 
     # --- Vitals / PPG (Fase 2) ---
 

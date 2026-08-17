@@ -14,7 +14,7 @@ from backend.models import db
 from backend.models.alert import Alert
 from backend.models.device import Device
 from backend.models.patient import Patient
-from backend.models.severity import ReadingSeverity
+from backend.models.classification import ReadingClassification
 from backend.models.threshold import Threshold
 from backend.models.trend import TrendEvent
 from backend.models.user import User
@@ -144,9 +144,9 @@ def patient_severity_latest(patient_id: str):
         return jsonify(None)
 
     latest = (
-        db.session.query(ReadingSeverity)
+        db.session.query(ReadingClassification)
         .filter_by(device_id=device.device_id)
-        .order_by(ReadingSeverity.segment_end.desc())
+        .order_by(ReadingClassification.segment_end.desc())
         .first()
     )
     if latest is None:
@@ -157,12 +157,12 @@ def patient_severity_latest(patient_id: str):
             "channel_id": latest.channel_id,
             "segment_start": latest.segment_start.isoformat(),
             "segment_end": latest.segment_end.isoformat(),
-            "wheeze_present": latest.wheeze_present,
-            "wheeze_confidence": latest.wheeze_confidence,
-            "crackle_present": latest.crackle_present,
-            "crackle_confidence": latest.crackle_confidence,
+            "wheeze_crackle_class": latest.wheeze_crackle_class,
+            "wheeze_crackle_confidence": latest.wheeze_crackle_confidence,
+            "wheeze_crackle_probabilities": latest.wheeze_crackle_probabilities,
+            "wheeze_crackle_model_version": latest.wheeze_crackle_model_version,
+            # 🔓⏸️ Model B ditunda — selalu None sampai terintegrasi (INTEGRATION_CONTRACT.md §4.2)
             "severity_class": latest.severity_class,
-            "model_version": latest.model_version,
         }
     )
 

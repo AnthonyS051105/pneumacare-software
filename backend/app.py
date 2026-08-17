@@ -7,6 +7,7 @@ from backend.api.patient_routes import patient_bp
 from backend.api.routes import api_bp
 from backend.auth.auth_routes import auth_bp
 from backend.config import Config
+from backend.inference.model_startup import load_model_a_or_none
 from backend.ingestion.mqtt_subscriber import start_mqtt_subscriber
 from backend.ingestion.websocket_server import register_websocket_routes
 from backend.models import db
@@ -38,6 +39,11 @@ def create_app(config_class: type = Config, start_mqtt: bool = True) -> Flask:
 
     with app.app_context():
         db.create_all()
+
+    # SDD_SOFTWARE.md §9: model gagal load -> fallback otomatis ke mock_inference
+    # dengan log warning jelas, bukan crash startup. Disimpan di app.config supaya
+    # websocket_server.py bisa akses via current_app tanpa import langsung app.py.
+    app.config["_INFERENCE_MODEL"] = load_model_a_or_none(app.config.get("MODEL_A_CHECKPOINT_PATH", ""))
 
     register_websocket_routes(app)
     app.register_blueprint(api_bp)

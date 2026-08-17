@@ -1,8 +1,9 @@
 """Websocket server untuk kanal audio (FR-SW-001, FR-SW-002, FR-SW-005).
 
 Endpoint /ws/audio menerima chunk audio sesuai skema base64 JSON yang diputuskan
-di INTEGRATION_CONTRACT.md §2.3, menyusunnya jadi segmen 10 detik per channel,
-lalu meneruskan tiap segmen genap ke modul inference (mock atau asli).
+di INTEGRATION_CONTRACT.md §2.3, menyusunnya jadi segmen 5 detik per channel
+(INTEGRATION_CONTRACT.md §4.1), lalu meneruskan tiap segmen genap ke Model A asli
+(bila ter-load saat startup, lihat inference/model_startup.py) atau mock_inference.
 """
 
 import base64
@@ -13,11 +14,12 @@ from datetime import datetime, timezone
 from flask import current_app
 from flask_sock import Sock
 
+from backend.inference.inference_service import run_inference
+from backend.inference.mock_inference import run_mock_inference
 from backend.ingestion.audio_segment_buffer import AudioSegmentBuffer, Segment
 from backend.ingestion.device_registry import upsert_device_seen
-from backend.inference.mock_inference import run_mock_inference
 from backend.models import db
-from backend.models.severity import ReadingSeverity
+from backend.models.classification import ReadingClassification
 
 logger = logging.getLogger(__name__)
 
@@ -42,41 +44,54 @@ def _decode_pcm_base64(pcm_base64: str) -> list[int]:
 
 
 def _persist_segment_result(result: dict) -> None:
-    prediction = result["prediction"]
-    reading = ReadingSeverity(
+    wheeze_crackle = result["wheeze_crackle"]
+    reading = ReadingClassification(
         id=result["segment_id"],
         device_id=result["device_id"],
         channel_id=result["channel_id"],
         segment_start=datetime.fromtimestamp(result["segment_start_ms"] / 1000, tz=timezone.utc),
         segment_end=datetime.fromtimestamp(result["segment_end_ms"] / 1000, tz=timezone.utc),
-        wheeze_present=prediction["wheeze"]["present"],
-        wheeze_confidence=prediction["wheeze"]["confidence"],
-        crackle_present=prediction["crackle"]["present"],
-        crackle_confidence=prediction["crackle"]["confidence"],
-        severity_class=prediction["severity_class"],
-        model_version=result["model_version"],
+        wheeze_crackle_class=wheeze_crackle["predicted_class"],
+        wheeze_crackle_confidence=wheeze_crackle["confidence"],
+        wheeze_crackle_probabilities=wheeze_crackle["probabilities"],
+        wheeze_crackle_model_version=result["model_version"],
     )
     db.session.add(reading)
     db.session.commit()
 
 
 def _handle_segment(segment: Segment) -> None:
-    scenario = current_app.config.get("MOCK_INFERENCE_SCENARIO", "random")
-    result = run_mock_inference(
-        pcm_samples=segment.pcm_samples,
-        device_id=segment.device_id,
-        channel_id=segment.channel_id,
-        segment_start_ms=segment.segment_start_ms,
-        segment_end_ms=segment.segment_end_ms,
-        scenario=scenario,
-    )
+    model = current_app.config.get("_INFERENCE_MODEL")
+
+    if model is not None:
+        result = run_inference(
+            model=model,
+            pcm_samples=segment.pcm_samples,
+            source_sample_rate=segment.sample_rate,
+            device_id=segment.device_id,
+            channel_id=segment.channel_id,
+            segment_start_ms=segment.segment_start_ms,
+            segment_end_ms=segment.segment_end_ms,
+            model_version=current_app.config.get("MODEL_A_VERSION", "unknown"),
+        )
+    else:
+        scenario = current_app.config.get("MOCK_INFERENCE_SCENARIO", "random")
+        result = run_mock_inference(
+            pcm_samples=segment.pcm_samples,
+            device_id=segment.device_id,
+            channel_id=segment.channel_id,
+            segment_start_ms=segment.segment_start_ms,
+            segment_end_ms=segment.segment_end_ms,
+            scenario=scenario,
+        )
+
     _persist_segment_result(result)
     logger.info(
-        "segment inferred device=%s channel=%s wheeze=%s crackle=%s",
+        "segment inferred device=%s channel=%s predicted_class=%s confidence=%.3f",
         segment.device_id,
         segment.channel_id,
-        result["prediction"]["wheeze"]["present"],
-        result["prediction"]["crackle"]["present"],
+        result["wheeze_crackle"]["predicted_class"],
+        result["wheeze_crackle"]["confidence"],
     )
 
 
@@ -104,8 +119,17 @@ def register_websocket_routes(app) -> None:
                 timestamp_ms = header.get("timestamp_ms")
                 chunk_duration_ms = header.get("chunk_duration_ms")
                 pcm_base64 = header.get("pcm_base64")
+                sample_rate = header.get("sample_rate")
 
-                if None in (device_id, channel_id, seq_no, timestamp_ms, chunk_duration_ms, pcm_base64):
+                if None in (
+                    device_id,
+                    channel_id,
+                    seq_no,
+                    timestamp_ms,
+                    chunk_duration_ms,
+                    pcm_base64,
+                    sample_rate,
+                ):
                     logger.warning("pesan /ws/audio kurang field wajib, diabaikan: %s", header)
                     continue
 
@@ -122,6 +146,7 @@ def register_websocket_routes(app) -> None:
                         seq_no=seq_no,
                         chunk_duration_ms=chunk_duration_ms,
                         pcm_samples=pcm_samples,
+                        sample_rate=sample_rate,
                     )
 
                     if gap_event is not None:

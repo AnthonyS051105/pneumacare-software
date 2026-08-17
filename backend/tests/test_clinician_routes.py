@@ -4,7 +4,7 @@ from backend.models import db
 from backend.models.alert import Alert
 from backend.models.device import Device
 from backend.models.patient import Patient
-from backend.models.severity import ReadingSeverity
+from backend.models.classification import ReadingClassification
 from backend.models.threshold import Threshold
 from backend.models.trend import TrendEvent
 from backend.models.vital import ReadingVital
@@ -86,17 +86,16 @@ def test_severity_latest_returns_data(app, client):
     _seed_clinician_with_patient(app)
     with app.app_context():
         db.session.add(
-            ReadingSeverity(
+            ReadingClassification(
                 id="seg-1",
                 device_id="pneumacare-a1b2",
                 channel_id=1,
                 segment_start=datetime.now(timezone.utc),
                 segment_end=datetime.now(timezone.utc),
-                wheeze_present=True,
-                wheeze_confidence=0.8,
-                crackle_present=False,
-                crackle_confidence=0.1,
-                model_version="mock_v1",
+                wheeze_crackle_class="wheeze",
+                wheeze_crackle_confidence=0.8,
+                wheeze_crackle_probabilities={"none": 0.1, "crackle": 0.05, "wheeze": 0.8, "both": 0.05},
+                wheeze_crackle_model_version="mock_v2",
             )
         )
         db.session.commit()
@@ -105,7 +104,7 @@ def test_severity_latest_returns_data(app, client):
     response = client.get("/api/v1/patients/patient-1/severity/latest")
 
     assert response.status_code == 200
-    assert response.get_json()["wheeze_present"] is True
+    assert response.get_json()["wheeze_crackle_class"] == "wheeze"
 
 
 def test_trend_returns_data(app, client):

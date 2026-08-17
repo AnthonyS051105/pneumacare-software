@@ -5,32 +5,45 @@ Data longitudinal nyata belum tersedia (baru subjek sehat/simulasi, lihat PRD_SO
 yang jujur dilabeli sebagai simulasi — bukan data pasien sungguhan.
 
 Tiap skenario menghasilkan list ClassificationEvent yang mensimulasikan hasil klasifikasi
-per segmen 10 detik (SDD_SOFTWARE.md §6) selama beberapa menit, dengan pola frekuensi
-wheeze yang berbeda: naik, turun, atau stabil.
+per segmen 5 detik (INTEGRATION_CONTRACT.md §4.1) selama beberapa menit, dengan pola
+frekuensi wheeze yang berbeda: naik, turun, atau stabil.
 """
 
 from datetime import datetime, timedelta
 
-from backend.trend_analysis.rolling_window import ClassificationEvent
+from backend.trend_analysis.rolling_window import ClassificationEvent, WheezeCrackleClass
 
-SEGMENT_DURATION = timedelta(seconds=10)
+SEGMENT_DURATION = timedelta(seconds=5)
 _BASE_TIMESTAMP = datetime(2026, 1, 1, 8, 0, 0)
 
 
-def _build_events(wheeze_pattern: list[bool], crackle_pattern: list[bool] | None = None) -> list[ClassificationEvent]:
+def _build_events(
+    wheeze_pattern: list[bool], crackle_pattern: list[bool] | None = None
+) -> list[ClassificationEvent]:
     if crackle_pattern is None:
         crackle_pattern = [False] * len(wheeze_pattern)
     if len(wheeze_pattern) != len(crackle_pattern):
         raise ValueError("wheeze_pattern dan crackle_pattern harus sama panjang")
 
-    return [
-        ClassificationEvent(
-            timestamp=_BASE_TIMESTAMP + i * SEGMENT_DURATION,
-            wheeze_present=wheeze,
-            crackle_present=crackle,
+    events = []
+    for i, (wheeze, crackle) in enumerate(zip(wheeze_pattern, crackle_pattern)):
+        wheeze_crackle_class: WheezeCrackleClass
+        if wheeze and crackle:
+            wheeze_crackle_class = "both"
+        elif wheeze:
+            wheeze_crackle_class = "wheeze"
+        elif crackle:
+            wheeze_crackle_class = "crackle"
+        else:
+            wheeze_crackle_class = "none"
+
+        events.append(
+            ClassificationEvent(
+                timestamp=_BASE_TIMESTAMP + i * SEGMENT_DURATION,
+                wheeze_crackle_class=wheeze_crackle_class,
+            )
         )
-        for i, (wheeze, crackle) in enumerate(zip(wheeze_pattern, crackle_pattern))
-    ]
+    return events
 
 
 def rising_wheeze_scenario(n_segments: int = 60) -> list[ClassificationEvent]:

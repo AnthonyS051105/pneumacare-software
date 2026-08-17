@@ -10,3 +10,11 @@ scipy==1.14.1
 numpy==2.1.2
 pytest==8.3.3
 pytest-cov==5.0.0
+
+# Model A (wheeze/crackle CNN, INTEGRATION_CONTRACT.md §4.1) — CPU-only build.
+# Install dengan: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+# (index PyPI default TIDAK menyediakan build CPU-only sekecil ini — pip install -r
+# requirements.txt biasa akan menarik build CUDA berukuran jauh lebih besar bila
+# --index-url di atas tidak disertakan. Tidak perlu GPU untuk inference demo skala kecil.)
+torch==2.13.0
+torchvision==0.28.0
