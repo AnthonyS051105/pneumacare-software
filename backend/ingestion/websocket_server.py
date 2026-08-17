@@ -133,6 +133,14 @@ def register_websocket_routes(app) -> None:
                     logger.warning("pesan /ws/audio kurang field wajib, diabaikan: %s", header)
                     continue
 
+                bit_depth = header.get("bit_depth")
+                if bit_depth is not None and bit_depth != 16:
+                    logger.warning(
+                        "bit_depth tidak didukung: %s, hanya 16-bit yang didukung saat ini",
+                        bit_depth,
+                    )
+                    continue
+
                 device_id_for_reset = (device_id, channel_id)
                 pcm_samples = _decode_pcm_base64(pcm_base64)
 
