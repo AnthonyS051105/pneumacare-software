@@ -1,127 +1,168 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/*
+ * PNEUMACARE design tokens (sumber: PNEUMACARE_Final_UI/PNEUMACARE/design-tokens.json).
+ * Palet default Tailwind dimatikan supaya hanya warna sistem desain yang tersedia.
+ */
+@theme {
+  --font-*: initial;
+  --font-sans: Arial, Helvetica, sans-serif;
+  --font-mono: monospace;
 
-  --color-primary: #006a66;
-  --color-primary-shade: #0d6b67;
-  --color-primary-container: #16b3ac;
-  --color-on-primary: #ffffff;
-  --color-on-primary-container: #003f3c;
+  --color-*: initial;
+  --color-white: #fff;
+  --color-black: #000;
+  --color-transparent: transparent;
+  --color-primary: #167d76;
+  --color-teal: #176f69;
+  --color-navy: #173b46;
+  --color-mint: #edf7f3;
+  --color-canvas: #f5f9f8;
+  --color-ink: #203c46;
+  --color-muted: #647880;
+  --color-line: #dde8e7;
+  --color-rose: #b75b66;
+  --color-blue: #477eab;
+  --color-amber: #855d1b;
+  --color-red: #a3393e;
 
-  --color-secondary: #4b6362;
-  --color-secondary-container: #cee8e7;
-  --color-secondary-fixed: #cee8e7;
-  --color-on-secondary-container: #516968;
-  --color-on-secondary-fixed: #071f1f;
+  /*
+   * Breakpoint dibuat identik dengan media query referensi.
+   * `max-md:` = (width < 768px) = referensi `max-width:767px`, dst.
+   */
+  --breakpoint-*: initial;
+  --breakpoint-xxs: 360px; /* max-xxs  -> <=359  */
+  --breakpoint-xs: 381px; /* max-xs   -> <=380  */
+  --breakpoint-sm: 700px; /* sm: >=700, max-sm -> <=699 */
+  --breakpoint-md: 768px; /* md: >=768, max-md -> <=767 */
+  --breakpoint-lg: 901px; /* lg: >=901, max-lg -> <=900 */
+  --breakpoint-tb: 961px; /* max-tb   -> <=960  */
+  --breakpoint-xl: 1101px; /* xl: >=1101, max-xl -> <=1100 */
+  --breakpoint-2xl: 1181px; /* max-2xl  -> <=1180 */
+  --breakpoint-3xl: 1600px; /* 3xl: >=1600 */
 
-  --color-tertiary: #4f625d;
-  --color-tertiary-container: #90a59f;
-
-  --color-accent-blue: #2196f3;
-
-  --color-status-success: #16a34a;
-  --color-status-warning: #f97316;
-  --color-status-error: #dc2626;
-
-  --color-error: #ba1a1a;
-  --color-error-container: #ffdad6;
-
-  --color-background: #f8f9ff;
-  --color-surface: #f8f9ff;
-  --color-surface-container: #e9eef9;
-  --color-surface-container-low: #eff4ff;
-  --color-surface-container-lowest: #ffffff;
-  --color-surface-container-high: #e4e8f3;
-  --color-surface-variant: #dee2ee;
-
-  --color-on-background: #171c24;
-  --color-on-surface: #171c24;
-  --color-on-surface-variant: #3c4948;
-
-  --color-outline: #6c7a78;
-  --color-outline-variant: #bbc9c7;
-
-  --color-neutral-900: #141414;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-manrope: var(--font-manrope);
-
-  --color-primary: var(--color-primary);
-  --color-primary-shade: var(--color-primary-shade);
-  --color-primary-container: var(--color-primary-container);
-  --color-on-primary: var(--color-on-primary);
-  --color-on-primary-container: var(--color-on-primary-container);
-
-  --color-secondary: var(--color-secondary);
-  --color-secondary-container: var(--color-secondary-container);
-  --color-secondary-fixed: var(--color-secondary-fixed);
-  --color-on-secondary-container: var(--color-on-secondary-container);
-  --color-on-secondary-fixed: var(--color-on-secondary-fixed);
-
-  --color-tertiary: var(--color-tertiary);
-  --color-tertiary-container: var(--color-tertiary-container);
-
-  --color-accent-blue: var(--color-accent-blue);
-
-  --color-status-success: var(--color-status-success);
-  --color-status-warning: var(--color-status-warning);
-  --color-status-error: var(--color-status-error);
-
-  --color-error: var(--color-error);
-  --color-error-container: var(--color-error-container);
-
-  --color-surface: var(--color-surface);
-  --color-surface-container: var(--color-surface-container);
-  --color-surface-container-low: var(--color-surface-container-low);
-  --color-surface-container-lowest: var(--color-surface-container-lowest);
-  --color-surface-container-high: var(--color-surface-container-high);
-  --color-surface-variant: var(--color-surface-variant);
-
-  --color-on-background: var(--color-on-background);
-  --color-on-surface: var(--color-on-surface);
-  --color-on-surface-variant: var(--color-on-surface-variant);
-
-  --color-outline: var(--color-outline);
-  --color-outline-variant: var(--color-outline-variant);
-
-  --spacing-sidebar-width: 240px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  --animate-shimmer: shimmer 1.5s infinite alternate;
+  @keyframes shimmer {
+    to {
+      opacity: 0.4;
+    }
   }
 }
 
-body {
-  background: var(--color-background);
-  color: var(--color-on-background);
-  font-family: var(--font-manrope), Arial, Helvetica, sans-serif;
+/* Kueri tinggi viewport yang dipakai cerita scroll landing. */
+@custom-variant short (@media (max-height: 760px));
+@custom-variant shorter (@media (max-height: 700px));
+@custom-variant shortest (@media (max-height: 690px));
+/* Kelas `motion-reduced` dipasang pengontrol scroll pada root landing. */
+@custom-variant reduced (&:where(.motion-reduced *));
+
+@layer base {
+  html {
+    scroll-padding-top: 90px;
+  }
+  body {
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    font: 15px/1.6 Arial, Helvetica, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  body:has(.pneuma-landing) {
+    background: #fff;
+  }
+  a {
+    color: var(--color-teal);
+    text-decoration: none;
+  }
+  a:hover {
+    text-decoration: underline;
+    text-underline-offset: 4px;
+  }
+  button {
+    cursor: pointer;
+  }
+  button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  :is(button, a, input, select, textarea, summary):focus-visible {
+    outline: 3px solid #5a9e92;
+    outline-offset: 4px;
+  }
+  h1 {
+    font-size: 30px;
+    line-height: 1.22;
+    letter-spacing: -1px;
+    font-weight: 600;
+  }
+  h2 {
+    font-size: 22px;
+    line-height: 1.3;
+    letter-spacing: -0.5px;
+    font-weight: 700;
+  }
+  h3 {
+    font-size: 17px;
+    line-height: 1.45;
+    letter-spacing: -0.25px;
+    font-weight: 700;
+  }
+  h4 {
+    font-size: 14px;
+    line-height: 1.45;
+    font-weight: 700;
+  }
+  small {
+    font-size: 12px;
+    color: var(--color-muted);
+  }
+  ::placeholder {
+    color: #757575;
+  }
+  /* Kembalikan field tanggal WebKit ke bawaan browser (referensi tidak memakai preflight). */
+  ::-webkit-date-and-time-value,
+  ::-webkit-datetime-edit,
+  ::-webkit-datetime-edit-fields-wrapper,
+  ::-webkit-datetime-edit-year-field,
+  ::-webkit-datetime-edit-month-field,
+  ::-webkit-datetime-edit-day-field {
+    all: revert;
+  }
+  input[type="checkbox"] {
+    accent-color: var(--color-primary);
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    margin: 3px 3px 3px 4px;
+  }
+  @media (max-width: 767px) {
+    body {
+      font-size: 14px;
+    }
+    h1 {
+      font-size: 25px;
+    }
+    h2 {
+      font-size: 20px;
+    }
+  }
 }
 
-.tabular-nums {
-  font-variant-numeric: tabular-nums;
+@layer components {
+  /* Ikon Lucide: ukuran dasar dapat ditimpa utilitas `size-*` / `stroke-*`. */
+  .icon {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    stroke-width: 1.6;
+    flex-shrink: 0;
+    vertical-align: middle;
+  }
 }
 
-.material-symbols-outlined {
-  font-family: "Material Symbols Outlined";
-  font-weight: normal;
-  font-style: normal;
-  font-size: 24px;
-  line-height: 1;
-  letter-spacing: normal;
-  text-transform: none;
-  display: inline-block;
-  white-space: nowrap;
-  word-wrap: normal;
-  direction: ltr;
-  -webkit-font-smoothing: antialiased;
+@media (prefers-reduced-motion: reduce) {
+  * {
+    scroll-behavior: auto !important;
+    animation: none !important;
+    transition: none !important;
+  }
 }

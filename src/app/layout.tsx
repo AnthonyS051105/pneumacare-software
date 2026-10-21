@@ -1,41 +1,22 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono, Manrope } from "next/font/google";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
-const manrope = Manrope({
-  variable: "--font-manrope",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-});
-
+// Tanpa web font: Arial/Helvetica bawaan perangkat (sesuai design-tokens referensi),
+// jadi tidak ada request font eksternal yang memblokir render.
 export const metadata: Metadata = {
-  title: "PNEUMACARE",
-  description: "Pemantauan Kardio-Respirasi Kontinu untuk Pasien PPOK",
+  title: { default: "PNEUMACARE", template: "%s | PNEUMACARE" },
+  description: "PNEUMACARE: pemantauan kardio-respirasi dari rumah, responsif untuk pasien dan tenaga medis.",
+};
+
+export const viewport: Viewport = {
+  themeColor: "#167d76",
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html
-      lang="id"
-      className={`${geistSans.variable} ${geistMono.variable} ${manrope.variable} h-full antialiased`}
-    >
-      <head>
-        <link
-          href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
-          rel="stylesheet"
-        />
-      </head>
-      <body className="min-h-full flex flex-col">{children}</body>
+    <html lang="id">
+      <body>{children}</body>
     </html>
   );
 }
