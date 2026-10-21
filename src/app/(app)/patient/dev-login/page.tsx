@@ -48,7 +48,7 @@ export default function DevLoginPage() {
 
   return (
     <div className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-4 p-6">
-      <div className="rounded-lg border-2 border-dashed border-status-error/50 bg-status-error/5 p-3 text-sm text-status-error">
+      <div className="rounded-lg border-2 border-dashed border-red/50 bg-red/5 p-3 text-sm text-red">
         ⚠️ TEMPORARY_DEV_AUTH — halaman development sementara, BUKAN halaman Login
         produk. Hapus setelah halaman Login asli selesai.
       </div>
@@ -61,7 +61,7 @@ export default function DevLoginPage() {
           placeholder="Email akun pasien"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="rounded border border-outline-variant/40 p-2"
+          className="rounded border border-line p-2"
           required
         />
         <input
@@ -69,20 +69,20 @@ export default function DevLoginPage() {
           placeholder="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="rounded border border-outline-variant/40 p-2"
+          className="rounded border border-line p-2"
           required
         />
         <button
           type="submit"
           disabled={status === "loading"}
-          className="rounded bg-primary p-2 font-semibold text-on-primary disabled:opacity-50"
+          className="rounded bg-primary p-2 font-semibold text-white disabled:opacity-50"
         >
           {status === "loading" ? "Memproses..." : "Login (dev)"}
         </button>
       </form>
 
       {message && (
-        <p className={status === "error" ? "text-status-error" : "text-status-success"}>
+        <p className={status === "error" ? "text-red" : "text-primary"}>
           {message}
         </p>
       )}
