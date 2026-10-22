@@ -9,6 +9,7 @@ oleh caller (layer I/O) — modul ini sendiri tidak menyentuh DB.
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 
 from backend.trend_analysis.trend_detector import TrendResult
 
@@ -227,3 +228,40 @@ def evaluate_alert(
         return None
 
     return AlertResult(level=level, triggers=triggers, trend_persistent=trend_persistent)
+
+
+def trigger_signature(triggers: list[dict]) -> frozenset[tuple]:
+    """Identitas kondisi alert: (type, parameter, severity) tiap trigger — sengaja TANPA `value`,
+    supaya HR 78 lalu HR 77 di bawah ambang yang sama dianggap kondisi yang sama."""
+    return frozenset((t.get("type"), t.get("parameter"), t.get("severity")) for t in triggers)
+
+
+@dataclass(frozen=True)
+class ExistingAlert:
+    level: int
+    triggers: list[dict]
+    acknowledged: bool
+    created_at: datetime
+
+
+def is_repeat_alert(
+    level: int,
+    triggers: list[dict],
+    existing: list[ExistingAlert],
+    now: datetime,
+    cooldown_seconds: float,
+) -> bool:
+    """True bila alert baru hanya mengulang kondisi yang sudah tercatat (mencegah alert fatigue).
+
+    Setiap segmen audio 5 detik × 4 kanal memicu evaluasi; tanpa ini satu kondisi yang menetap
+    menghasilkan puluhan alert identik per menit. Dianggap pengulangan bila ada alert lama dengan
+    level SAMA dan signature trigger SAMA yang (a) belum ditinjau, atau (b) dibuat dalam
+    `cooldown_seconds` terakhir. Eskalasi level / parameter baru tidak pernah ditahan.
+    """
+    signature = trigger_signature(triggers)
+    for old in existing:
+        if old.level != level or trigger_signature(old.triggers) != signature:
+            continue
+        if not old.acknowledged or (now - old.created_at).total_seconds() < cooldown_seconds:
+            return True
+    return False

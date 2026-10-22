@@ -97,3 +97,46 @@ def test_significant_trend_plus_persistence_escalates_to_level_3(app):
         assert result is not None
         assert result.level == 3
         assert result.triggers[0]["type"] == "trend_slope"
+
+
+def test_persistent_condition_does_not_create_duplicate_alerts(app):
+    _seed_device_with_patient(app)
+    with app.app_context():
+        db.session.add(Threshold(patient_id="patient-1", hr_min=60, hr_max=100))
+        db.session.commit()
+
+        first = evaluate_and_save_alert(app, "pneumacare-a1b2", VitalReading(hr=150, spo2=None, rr=None), None)
+        for hr in (151, 149, 152):
+            assert evaluate_and_save_alert(app, "pneumacare-a1b2", VitalReading(hr=hr, spo2=None, rr=None), None) is None
+
+        assert first is not None
+        assert db.session.query(Alert).count() == 1
+
+
+def test_new_parameter_still_creates_alert_while_other_is_open(app):
+    _seed_device_with_patient(app)
+    with app.app_context():
+        db.session.add(Threshold(patient_id="patient-1", hr_min=60, hr_max=100, spo2_min=92))
+        db.session.commit()
+
+        evaluate_and_save_alert(app, "pneumacare-a1b2", VitalReading(hr=150, spo2=None, rr=None), None)
+        second = evaluate_and_save_alert(app, "pneumacare-a1b2", VitalReading(hr=None, spo2=85, rr=None), None)
+
+        assert second is not None
+        assert db.session.query(Alert).count() == 2
+
+
+def test_condition_recurring_after_ack_and_cooldown_creates_new_alert(app):
+    _seed_device_with_patient(app)
+    with app.app_context():
+        db.session.add(Threshold(patient_id="patient-1", hr_min=60, hr_max=100))
+        db.session.commit()
+        first = evaluate_and_save_alert(app, "pneumacare-a1b2", VitalReading(hr=150, spo2=None, rr=None), None)
+        first.acknowledged = True
+        first.created_at = datetime.now(timezone.utc) - timedelta(seconds=app.config["ALERT_REPEAT_COOLDOWN_SECONDS"] + 60)
+        db.session.commit()
+
+        again = evaluate_and_save_alert(app, "pneumacare-a1b2", VitalReading(hr=150, spo2=None, rr=None), None)
+
+        assert again is not None
+        assert db.session.query(Alert).count() == 2

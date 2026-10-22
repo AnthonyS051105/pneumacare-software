@@ -6,9 +6,9 @@ trend wheeze/crackle) — FR-SW-040..044, INTEGRATION_CONTRACT.md §5.
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from backend.alerting.alert_engine import Thresholds, VitalReading, evaluate_alert
+from backend.alerting.alert_engine import ExistingAlert, Thresholds, VitalReading, evaluate_alert, is_repeat_alert
 from backend.models import db
 from backend.models.alert import Alert
 from backend.models.device import Device
@@ -94,22 +94,39 @@ def evaluate_and_save_alert(
     if result is None:
         return None
 
+    triggers = [
+        {"type": t.type, "parameter": t.parameter, "value": t.value, "threshold": t.threshold, "severity": t.severity}
+        for t in result.triggers
+    ]
+    now = datetime.now(timezone.utc)
+    cooldown = cfg.get("ALERT_REPEAT_COOLDOWN_SECONDS", 0)
+    cutoff = (now - timedelta(seconds=cooldown)).replace(tzinfo=None)
+    candidates = (
+        db.session.query(Alert)
+        .filter(Alert.patient_id == patient_id, Alert.level == result.level)
+        .filter((Alert.acknowledged.is_(False)) | (Alert.created_at >= cutoff))
+        .all()
+    )
+    existing = [
+        ExistingAlert(
+            level=a.level,
+            triggers=a.triggers or [],
+            acknowledged=a.acknowledged,
+            created_at=a.created_at.replace(tzinfo=None) if a.created_at.tzinfo else a.created_at,
+        )
+        for a in candidates
+    ]
+    if is_repeat_alert(result.level, triggers, existing, now.replace(tzinfo=None), cooldown):
+        logger.debug("alert level=%d dilewati: kondisi sama masih tercatat (patient=%s)", result.level, patient_id)
+        return None
+
     alert = Alert(
         id=str(uuid.uuid4()),
         device_id=device_id,
         patient_id=patient_id,
         level=result.level,
-        triggers=[
-            {
-                "type": t.type,
-                "parameter": t.parameter,
-                "value": t.value,
-                "threshold": t.threshold,
-                "severity": t.severity,
-            }
-            for t in result.triggers
-        ],
-        created_at=datetime.now(timezone.utc),
+        triggers=triggers,
+        created_at=now,
         acknowledged=False,
     )
     db.session.add(alert)

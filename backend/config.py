@@ -158,4 +158,9 @@ class Config:
     # WAJIB direview ulang begitu ambang klinis sungguhan tersedia, idealnya oleh orang dengan
     # latar belakang medis, bukan diputuskan sendiri oleh tim teknis.
     LEVEL1_MARGIN_PCT = 0.10  # TODO_CLINICAL_VALUE — untuk HR/RR (parameter dua-sisi, min & max)
+    # 🧩 Jendela (detik) di mana alert dengan level & trigger yang sama tidak dibuat ulang walau
+    # alert sebelumnya sudah ditinjau — mencegah alert fatigue dari evaluasi tiap segmen 5 detik.
+    # Alert yang BELUM ditinjau selalu menahan duplikatnya tanpa batas waktu. PARAMETER TUNING
+    # SISTEM, bukan nilai medis; tidak diatur di dokumen tim, perlu disepakati.
+    ALERT_REPEAT_COOLDOWN_SECONDS = 600  # TODO_CLINICAL_VALUE (parameter tuning, bukan medis)
     LEVEL1_MARGIN_SPO2_ABS = 2  # TODO_CLINICAL_VALUE — poin persentase SpO2 (parameter satu-sisi, hanya min)
