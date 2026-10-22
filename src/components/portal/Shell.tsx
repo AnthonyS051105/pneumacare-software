@@ -5,6 +5,8 @@ import { usePathname } from "next/navigation";
 import { useFeedback } from "@/components/providers/Feedback";
 import { Bell, ChartNoAxesCombined, House, Icon, LogOut, UserRound, Users } from "@/components/ui/Icon";
 import { Avatar, Brand, cn } from "@/components/ui/primitives";
+import { useSessionName } from "@/components/providers/SessionUser";
+import { greetingFor } from "@/lib/format";
 import { useDemo } from "@/lib/demo-store";
 
 export type PortalRole = "patient" | "clinician";
@@ -28,8 +30,10 @@ function useActive() {
   return (route: string) => (route === "/clinician/patients" ? pathname.startsWith(route) : pathname === route);
 }
 
+/** Nama dari sesi login (API) bila ada; jatuh ke state demo di luar portal ber-sesi. */
 function useUser(role: PortalRole) {
-  return useDemo((d) => (role === "clinician" ? d.clinician.name : d.patient.name));
+  const demo = useDemo((d) => (role === "clinician" ? d.clinician.name : d.patient.name));
+  return useSessionName() ?? demo;
 }
 
 export function SkipLink() {
@@ -135,7 +139,7 @@ export function Topbar({
 }) {
   const name = useUser(role);
   const heading = greeting
-    ? "Selamat pagi, " + (name === "Budi Santoso" ? "Pak Budi" : name.split(" ")[0])
+    ? `${greetingFor()}, ${name.split(" ")[0]}`
     : title;
   return (
     <header className="flex justify-between items-center gap-5 mb-7 max-md:mb-6 max-md:items-start max-md:gap-3">

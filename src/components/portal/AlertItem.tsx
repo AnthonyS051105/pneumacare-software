@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { useFeedback } from "@/components/providers/Feedback";
 import { Check, CircleAlert, Icon, TriangleAlert, Wifi } from "@/components/ui/Icon";
 import { btn, cn, Pill } from "@/components/ui/primitives";
@@ -25,12 +26,22 @@ function patientMessage(id: string) {
 }
 
 /** Item notifikasi/alert (padanan alertItem() di referensi). */
-export function AlertItem({ alert: a, clinical = false }: { alert: Alert; clinical?: boolean }) {
+export function AlertItem({
+  alert: a,
+  clinical = false,
+  onAcknowledge,
+}: {
+  alert: Alert;
+  clinical?: boolean;
+  /** Bila ada, "Tandai ditinjau" memanggil ini (API) alih-alih state demo. Lempar error bila gagal. */
+  onAcknowledge?: (id: string) => Promise<void>;
+}) {
   const readList = useDemo((d) => d.read);
   const ackList = useDemo((d) => d.ack);
   const { toast } = useFeedback();
-  const patient = patients.find((p) => p.id === a.patient);
-  const ack = a.ack || ackList.includes(a.id);
+  const [busy, setBusy] = useState(false);
+  const patientName = a.patientName ?? patients.find((p) => p.id === a.patient)?.name;
+  const ack = a.ack || (!onAcknowledge && ackList.includes(a.id));
   const read = readList.includes(a.id);
   const unread = !read && !clinical;
 
@@ -58,15 +69,15 @@ export function AlertItem({ alert: a, clinical = false }: { alert: Alert; clinic
           <small className="text-[11px] max-md:leading-[1.5]">{a.time}</small>
         </div>
         <p className="text-[12px] text-muted mt-[5px] max-w-[75ch] max-md:text-[13px] max-md:leading-[1.7] max-md:mt-[9px] max-md:max-w-none max-md:break-words">
-          {clinical ? a.detail : patientMessage(a.id)}
+          {clinical ? a.detail : (a.message ?? patientMessage(a.id))}
         </p>
         <div className="flex flex-wrap items-center gap-2 mt-3 max-md:gap-1.5">
           <Pill tone={a.level === "urgent" ? "urgent" : a.level === "warn" ? "warn" : ""} className={metaPill}>
             {a.level === "urgent" ? "Urgent" : a.level === "warn" ? "Warning" : "Info"}
           </Pill>
-          {clinical && patient && (
+          {clinical && patientName && (
             <Link href={detailHref(a.patient, "alerts")} className="text-[12px]">
-              {patient.name}
+              {patientName}
             </Link>
           )}
           <Pill tone={ack ? "" : "off"} className={metaPill}>
@@ -84,9 +95,11 @@ export function AlertItem({ alert: a, clinical = false }: { alert: Alert; clinic
               Detail pemberitahuan
             </summary>
             <p className="text-[12px] text-muted mt-[5px] max-w-[75ch] max-md:text-[13px] max-md:leading-[1.7] max-md:mt-1 max-md:max-w-none">
-              {a.id === "a2"
-                ? "Kejadian pukul 09.05 WIB. Pembacaan terbaru pukul 09.30 WIB."
-                : "Waktu dan status peninjauan tercatat pada pemberitahuan."}
+              {a.message
+                ? `Tercatat ${a.time}.`
+                : a.id === "a2"
+                  ? "Kejadian pukul 09.05 WIB. Pembacaan terbaru pukul 09.30 WIB."
+                  : "Waktu dan status peninjauan tercatat pada pemberitahuan."}
             </p>
             <small className="text-[11px] max-md:block max-md:leading-[1.6] max-md:mt-2">
               Peninjauan tenaga medis tidak menentukan pemulihan kondisi.
@@ -98,14 +111,26 @@ export function AlertItem({ alert: a, clinical = false }: { alert: Alert; clinic
         ? !ack && (
             <button
               type="button"
+              disabled={busy}
               className={cn(btn({ small: true }), mobileAction)}
-              onClick={() => {
-                updateDemo((d) => (d.ack.includes(a.id) ? d : { ...d, ack: [...d.ack, a.id] }));
-                toast("Alert ditandai sudah ditinjau. Status kondisi pasien tidak diubah.");
+              onClick={async () => {
+                if (!onAcknowledge) {
+                  updateDemo((d) => (d.ack.includes(a.id) ? d : { ...d, ack: [...d.ack, a.id] }));
+                  toast("Alert ditandai sudah ditinjau. Status kondisi pasien tidak diubah.");
+                  return;
+                }
+                setBusy(true);
+                try {
+                  await onAcknowledge(a.id);
+                  toast("Alert ditandai sudah ditinjau. Status kondisi pasien tidak diubah.");
+                } catch (error) {
+                  toast(error instanceof Error ? error.message : "Gagal menandai alert.", true);
+                  setBusy(false);
+                }
               }}
             >
               <Icon icon={Check} />
-              Tandai ditinjau
+              {busy ? "Menyimpan…" : "Tandai ditinjau"}
             </button>
           )
         : !read && (

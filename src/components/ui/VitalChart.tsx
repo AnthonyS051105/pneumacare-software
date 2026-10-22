@@ -1,4 +1,5 @@
 import { values, type VitalKey } from "@/lib/demo-data";
+import { yDomain, type ChartPoint } from "@/lib/vitals";
 
 type ChartOptions = {
   mini?: boolean;
@@ -10,6 +11,16 @@ type ChartOptions = {
   center?: number;
   /** "grid" = grafik di halaman riwayat (.chart-grid .chart), tinggi minimum lebih besar. */
   variant?: "default" | "grid";
+  /**
+   * Data nyata dari API. Bila diisi, grafik memakai sumbu-X berbasis waktu ([domain]) dan
+   * mengabaikan `series` demo. Larik kosong = "belum ada data". Jeda antar titik lebih
+   * besar dari `gapMs` digambar putus, bukan disambung (jeda = data tidak tersedia).
+   */
+  points?: ChartPoint[];
+  domain?: [number, number];
+  gapMs?: number;
+  /** Label sumbu-X (7 buah) untuk mode data nyata. */
+  labels?: string[];
 };
 
 const chartClass = {
@@ -38,11 +49,18 @@ export function VitalChart({
   range = "24h",
   center,
   variant = "default",
+  points,
+  domain,
+  gapMs = Infinity,
+  labels: realLabels,
 }: ChartOptions & { vital?: VitalKey }) {
   const v = values[vital];
-  let series = wave
-    ? Array.from({ length: 60 }, (_, j) => Math.sin(j * 0.72) * 0.18 + (j % 10 === 6 ? 0.7 : 0))
-    : v.series;
+  const real = points !== undefined;
+  let series = real
+    ? points.map((p) => p.v)
+    : wave
+      ? Array.from({ length: 60 }, (_, j) => Math.sin(j * 0.72) * 0.18 + (j % 10 === 6 ? 0.7 : 0))
+      : v.series;
   const w = 620;
   const h = mini ? 70 : 210;
   const left = mini ? 2 : 36;
@@ -51,26 +69,34 @@ export function VitalChart({
   const right = w - 10;
   let min = wave ? -0.5 : v.min;
   let max = wave ? 1 : v.max;
-  if (center !== undefined && !wave) {
+  if (real) [min, max] = yDomain(vital, series);
+  if (center !== undefined && !wave && !real) {
     series = series.map((a) => a + center - v.value);
     min = Math.min(v.min, ...series) - 1;
     max = Math.max(v.max, ...series) + 1;
   }
-  const x = (j: number) => left + (j * (right - left)) / (series.length - 1);
+  const [t0, t1] = domain ?? [0, 1];
+  const x = (j: number) =>
+    real
+      ? left + (Math.min(Math.max((points[j].t - t0) / (t1 - t0 || 1), 0), 1) * (right - left))
+      : left + (j * (right - left)) / (series.length - 1);
   const y = (a: number) => bottom - ((a - min) / (max - min)) * (bottom - top);
 
   const pieces: [number, number][][] = [];
   let current: [number, number][] = [];
   series.forEach((a, j) => {
-    if ((gap && j === 6) || (offline && j >= 8)) {
+    const broken = real ? j > 0 && points[j].t - points[j - 1].t > gapMs : (gap && j === 6) || (offline && j >= 8);
+    if (broken) {
       if (current.length) pieces.push(current);
-      current = [];
+      current = real ? [[x(j), y(a)]] : [];
     } else current.push([x(j), y(a)]);
   });
   if (current.length) pieces.push(current);
+  const showDots = !wave && (real ? !mini && series.length <= 40 : !mini);
 
-  const label = `${v.label}: grafik pemantauan${gap ? ", terdapat jeda data" : ""}${offline ? ", data berhenti saat perangkat offline" : ""}`;
-  const labels = mini ? [] : RANGE_LABELS[range] ?? RANGE_LABELS["24h"];
+  const hasGap = real ? pieces.length > 1 : gap;
+  const label = `${v.label}: grafik pemantauan${real && !series.length ? ", belum ada data" : ""}${hasGap ? ", terdapat jeda data" : ""}${offline ? ", data berhenti saat perangkat offline" : ""}`;
+  const labels = mini ? [] : real ? (realLabels ?? []) : (RANGE_LABELS[range] ?? RANGE_LABELS["24h"]);
 
   return (
     <svg
@@ -87,7 +113,7 @@ export function VitalChart({
             <g key={`grid-${j}`}>
               <line stroke="#e7ece7" strokeWidth="1" x1={left} x2={right} y1={yy} y2={yy} />
               <text x="2" y={yy + 4} {...TEXT_PROPS}>
-                {wave ? "" : Math.round(max - (j * (max - min)) / 3)}
+                {wave || (real && !series.length) ? "" : Math.round(max - (j * (max - min)) / 3)}
               </text>
             </g>
           );
@@ -117,9 +143,17 @@ export function VitalChart({
           strokeLinejoin="round"
         />
       ))}
-      {!wave &&
-        !mini &&
-        pieces.flat().map((q, i) => <circle key={`dot-${i}`} cx={q[0]} cy={q[1]} r="2.3" fill={v.color} />)}
+      {showDots && pieces.flat().map((q, i) => <circle key={`dot-${i}`} cx={q[0]} cy={q[1]} r="2.3" fill={v.color} />)}
+      {real &&
+        !showDots &&
+        pieces
+          .filter((p) => p.length === 1)
+          .map((p, i) => <circle key={`solo-${i}`} cx={p[0][0]} cy={p[0][1]} r={mini ? 2 : 2.3} fill={v.color} />)}
+      {real && series.length === 0 && !mini && (
+        <text x={w / 2} y="100" textAnchor="middle" {...TEXT_PROPS}>
+          Belum ada data pada periode ini
+        </text>
+      )}
       {trend && <path d="M36,145 L610,80" stroke="#0d7772" strokeWidth="2" strokeDasharray="6 5" fill="none" />}
       {offline && (
         <>

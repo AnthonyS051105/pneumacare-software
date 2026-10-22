@@ -15,6 +15,8 @@ type FieldProps = {
   error?: string;
   autoComplete?: string;
   className?: string;
+  /** Nilai ditampilkan tetapi tidak bisa diubah (mis. email akun). */
+  readOnly?: boolean;
 };
 
 /** Padanan fungsi field() di referensi: label, input, hint, dan slot pesan error. */
@@ -28,6 +30,7 @@ export function Field({
   error,
   autoComplete,
   className,
+  readOnly = false,
 }: FieldProps) {
   const password = type === "password";
   const auto =
@@ -59,11 +62,12 @@ export function Field({
           type={type}
           defaultValue={defaultValue}
           required={required}
+          readOnly={readOnly}
           autoComplete={auto}
           minLength={password ? 8 : undefined}
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? `${name}-error` : hint ? `${name}-hint` : undefined}
-          className={cn(inputClass, password && "pr-[46px]", error && inputInvalidClass)}
+          className={cn(inputClass, password && "pr-[46px]", error && inputInvalidClass, readOnly && "read-only:bg-[#f3f6f4] read-only:text-muted")}
         />
         {password && <PasswordToggle target={name} />}
       </div>

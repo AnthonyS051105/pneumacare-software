@@ -2,6 +2,7 @@ import { Droplets, Heart, Icon, Wind } from "@/components/ui/Icon";
 import { card, cn } from "@/components/ui/primitives";
 import { VitalChart } from "@/components/ui/VitalChart";
 import { values, type VitalKey } from "@/lib/demo-data";
+import type { ChartPoint } from "@/lib/vitals";
 
 const ICONS = { heart: Heart, droplets: Droplets, wind: Wind };
 const ICON_COLOR: Record<VitalKey, string> = { hr: "text-rose", spo2: "text-blue", rr: "text-primary" };
@@ -19,6 +20,10 @@ export function Metric({
   unknown = false,
   val,
   lab = false,
+  points,
+  domain,
+  gapMs,
+  updatedAt,
 }: {
   vital: VitalKey;
   clinical?: boolean;
@@ -26,6 +31,12 @@ export function Metric({
   val?: number | null;
   /** Di lembar pelengkap: <small> terakhir kartu bergaya monospace (.gallery .card>small:last-child). */
   lab?: boolean;
+  /** Data nyata dari API (mini-chart 24 jam). Tanpa ini, kartu memakai fixture demo. */
+  points?: ChartPoint[];
+  domain?: [number, number];
+  gapMs?: number;
+  /** Waktu pembaruan terakhir yang sudah diformat, mis. "09.30 WIB". */
+  updatedAt?: string | null;
 }) {
   const v = values[vital];
   const n = val ?? v.value;
@@ -57,10 +68,10 @@ export function Metric({
       {unknown ? (
         <p className="text-muted mt-6">Belum ada data terkini</p>
       ) : (
-        <VitalChart vital={vital} mini center={n} />
+        <VitalChart vital={vital} mini center={n} points={points} domain={domain} gapMs={gapMs} />
       )}
       <small className={cn(lab ? "font-mono text-[10px] pt-3.5 max-xs:mt-auto" : "text-[11px] max-md:text-[9px] max-xs:mt-2.5", "max-md:leading-[1.4] max-md:block max-xs:col-span-full")}>
-        {unknown ? "Kondisi belum diketahui" : "Pembaruan 09.30 WIB"}
+        {unknown ? "Kondisi belum diketahui" : `Pembaruan ${updatedAt ?? "09.30 WIB"}`}
       </small>
     </article>
   );
