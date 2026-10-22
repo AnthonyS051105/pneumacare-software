@@ -146,6 +146,18 @@ def _handle_ppg_raw(app, device_id: str, payload: dict) -> None:
         upsert_device_seen(device_id)
 
 
+def normalize_battery_pct(value) -> float | None:
+    """Persen baterai valid (0-100) atau None.
+
+    Firmware mengirim `battery_pct: -1` sebagai penanda eksplisit "sensor baterai belum ada"
+    (hardware/src/mqtt_client.cpp, PIN_MAPPING_BOM.md §1.3). Tanpa normalisasi ini dashboard
+    menampilkan "Baterai -1%". Nilai di luar 0-100 atau bukan angka diperlakukan tidak diketahui.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value) if 0 <= value <= 100 else None
+
+
 def _handle_status(app, device_id: str, payload: dict) -> None:
     status = payload.get("status")
     battery_pct = payload.get("battery_pct")
@@ -164,7 +176,7 @@ def _handle_status(app, device_id: str, payload: dict) -> None:
 
         extra_fields = {"status": status}
         if battery_pct is not None:
-            extra_fields["battery_percent"] = battery_pct
+            extra_fields["battery_percent"] = normalize_battery_pct(battery_pct)
         upsert_device_seen(device_id, **extra_fields)
 
         if previous_status != status:
