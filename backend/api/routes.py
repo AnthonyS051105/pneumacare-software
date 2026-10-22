@@ -12,6 +12,7 @@ from flask_login import current_user
 from backend.auth.decorators import role_required
 from backend.models import db
 from backend.models.alert import Alert
+from backend.models.patient import Patient
 
 api_bp = Blueprint("api", __name__, url_prefix="/api/v1")
 
@@ -20,7 +21,9 @@ api_bp = Blueprint("api", __name__, url_prefix="/api/v1")
 @role_required("clinician")  # FR-SW-059/NFR-SW-007: hanya clinician, 403 untuk role lain
 def acknowledge_alert(alert_id: str):
     alert = db.session.get(Alert, alert_id)
-    if alert is None:
+    patient = db.session.get(Patient, alert.patient_id) if alert is not None else None
+    # Hanya tenaga medis pendamping pasien tersebut yang boleh meninjau alert-nya.
+    if alert is None or patient is None or patient.assigned_clinician_id != current_user.id:
         return jsonify({"error": "alert tidak ditemukan"}), 404
 
     if alert.acknowledged:

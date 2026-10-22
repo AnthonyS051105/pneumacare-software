@@ -4,13 +4,17 @@ from backend.models import db
 from backend.models.alert import Alert
 from backend.models.device import Device
 from backend.models.patient import Patient
+from backend.models.user import User
 from backend.tests.conftest import create_user, login_as
 
 
 def _seed_alert(app, acknowledged: bool = False) -> str:
+    # Pasien ditugaskan ke dr@example.com: hanya tenaga medis pendampingnya yang boleh
+    # meninjau alert (lihat test_acknowledge_alert_of_unowned_patient_returns_404).
+    clinician_id = create_user(app, "dr@example.com", "password123", role="clinician")
     with app.app_context():
         device = Device(device_id="pneumacare-a1b2", status="online")
-        patient = Patient(id="patient-1", name="Test Pasien")
+        patient = Patient(id="patient-1", name="Test Pasien", assigned_clinician_id=clinician_id)
         db.session.add_all([device, patient])
         db.session.commit()
 
@@ -29,7 +33,10 @@ def _seed_alert(app, acknowledged: bool = False) -> str:
 
 
 def _login_clinician(app, client):
-    create_user(app, "dr@example.com", "password123", role="clinician")
+    with app.app_context():
+        exists = db.session.query(User).filter_by(email="dr@example.com").first() is not None
+    if not exists:
+        create_user(app, "dr@example.com", "password123", role="clinician")
     login_as(client, "dr@example.com", "password123")
 
 
