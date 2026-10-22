@@ -139,12 +139,16 @@ def _publish_ppg_and_status(host: str, mqtt_port: int, duration_s: float) -> Non
 
 
 async def main() -> None:
+    # Fungsi stream/publish membaca DEVICE_ID modul; diganti dari --device-id sebelum keduanya mulai.
+    global DEVICE_ID
     parser = argparse.ArgumentParser(description="Simulator ESP32 palsu PNEUMACARE")
     parser.add_argument("--host", default="localhost")
     parser.add_argument("--ws-port", type=int, default=5000)
     parser.add_argument("--mqtt-port", type=int, default=1883)
     parser.add_argument("--duration", type=float, default=20.0, help="durasi simulasi (detik)")
+    parser.add_argument("--device-id", default=DEVICE_ID, help=f"device_id yang disimulasikan (default {DEVICE_ID})")
     args = parser.parse_args()
+    DEVICE_ID = args.device_id
 
     loop = asyncio.get_running_loop()
     mqtt_task = loop.run_in_executor(
