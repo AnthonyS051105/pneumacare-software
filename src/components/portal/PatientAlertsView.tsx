@@ -3,16 +3,20 @@
 import { useFeedback } from "@/components/providers/Feedback";
 import { AlertItem } from "@/components/portal/AlertItem";
 import { notificationsCard } from "@/components/portal/layout";
+import { usePatientData } from "@/components/providers/PatientData";
 import { Bell } from "@/components/ui/Icon";
 import { btn, cn, Empty, Notice, segmentButton, segments } from "@/components/ui/primitives";
-import { alerts, CURRENT_PATIENT_ID } from "@/lib/demo-data";
 import { updateDemo, useDemo, useUi } from "@/lib/demo-store";
+import { toAlertView } from "@/lib/patientAlerts";
 
+// Status "sudah dibaca" hanya urusan tampilan di perangkat ini (backend tidak menyimpannya),
+// jadi tetap di localStorage lewat state demo.
 export function PatientAlertsView() {
   const [filter, setFilter] = useUi("alertFilter");
   const read = useDemo((d) => d.read);
   const { toast } = useFeedback();
-  const own = alerts.filter((a) => a.patient === CURRENT_PATIENT_ID);
+  const { alerts } = usePatientData();
+  const own = alerts.map((a) => toAlertView(a));
   const list = own.filter((a) => filter !== "unread" || !read.includes(a.id));
   return (
     <>
@@ -42,8 +46,10 @@ export function PatientAlertsView() {
       <section className={cn(notificationsCard, "mt-6")}>
         {list.length ? (
           list.map((a) => <AlertItem key={a.id} alert={a} />)
-        ) : (
+        ) : own.length ? (
           <Empty icon={Bell} title="Tidak ada notifikasi belum dibaca" text="Semua pemberitahuan telah Anda baca." />
+        ) : (
+          <Empty icon={Bell} title="Belum ada notifikasi" text="Pemberitahuan pemantauan Anda akan muncul di sini." />
         )}
       </section>
     </>
