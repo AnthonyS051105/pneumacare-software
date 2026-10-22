@@ -5,7 +5,7 @@ FR-SW-070 (constraint keamanan): semua endpoint `/patient/me/*` mengambil
 parameter URL — mencegah satu pasien mengakses data pasien lain.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from flask import Blueprint, jsonify, request
 from flask_login import current_user
@@ -13,6 +13,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from backend.analytics.pattern_insight import VitalPoint, generate_pattern_insight
 from backend.analytics.wear_time import StatusChange, compute_daily_online_hours
+from backend.api.serializers import device_dict
 from backend.auth.alert_language import translate_alert
 from backend.auth.decorators import role_required
 from backend.models import db
@@ -20,6 +21,7 @@ from backend.models.alert import Alert
 from backend.models.classification import ReadingClassification
 from backend.models.device import Device, DevicePairingCode, DeviceStatusLog
 from backend.models.patient import Patient
+from backend.models.user import User
 from backend.models.vital import ReadingVital
 
 patient_bp = Blueprint("patient", __name__, url_prefix="/api/v1/patient/me")
@@ -29,6 +31,26 @@ _RANGE_TO_TIMEDELTA = {"24h": timedelta(hours=24), "7d": timedelta(days=7), "30d
 
 def _current_patient() -> Patient | None:
     return db.session.query(Patient).filter_by(user_id=current_user.id).first()
+
+
+MIN_PASSWORD_LENGTH = 8
+
+# Timestamp di DB adalah UTC (naive). Label "pagi/siang/sore/malam" pada pattern insight harus
+# mengikuti jam lokal pengguna, bukan UTC — deployment target proyek ini ada di Indonesia (WIB).
+DISPLAY_UTC_OFFSET = timedelta(hours=7)  # WIB; TODO: jadikan per-pengguna bila perlu zona lain
+
+
+def _clinician_dict(patient: Patient | None) -> dict | None:
+    if patient is None or patient.assigned_clinician_id is None:
+        return None
+    clinician = db.session.get(User, patient.assigned_clinician_id)
+    if clinician is None:
+        return None
+    return {
+        "full_name": clinician.full_name,
+        "specialization": clinician.specialization,
+        "institution": clinician.institution,
+    }
 
 
 def _vital_range(values: list[float]) -> dict:
@@ -128,6 +150,7 @@ def summary():
             "patient_name": patient.name,
             "status_label": status_label,
             "device_connected": device.status == "online" if device is not None else False,
+            "device": device_dict(device),
             "latest_vitals": {
                 "hr": latest_vital.hr if latest_vital else None,
                 "spo2": latest_vital.spo2 if latest_vital else None,
@@ -206,7 +229,7 @@ def history():
     ]
 
     pattern_insight = generate_pattern_insight(
-        [VitalPoint(timestamp=r.timestamp, hr=r.hr) for r in readings]
+        [VitalPoint(timestamp=r.timestamp + DISPLAY_UTC_OFFSET, hr=r.hr) for r in readings]
     )
 
     return jsonify(
@@ -253,14 +276,16 @@ def alerts():
 @role_required("pasien")
 def get_profile():
     patient = _current_patient()
+    device = db.session.query(Device).filter_by(patient_id=patient.id).first() if patient else None
     return jsonify(
         {
             "email": current_user.email,
             "full_name": current_user.full_name,
             "patient_name": patient.name if patient else None,
             "date_of_birth": patient.date_of_birth.isoformat() if patient and patient.date_of_birth else None,
-            "device_paired": patient is not None
-            and db.session.query(Device).filter_by(patient_id=patient.id).first() is not None,
+            "device_paired": device is not None,
+            "device": device_dict(device),
+            "clinician": _clinician_dict(patient),
         }
     )
 
@@ -271,16 +296,36 @@ def update_profile():
     body = request.get_json(silent=True) or {}
     patient = _current_patient()
 
-    if "full_name" in body:
-        current_user.full_name = body["full_name"]
-        if patient is not None:
-            patient.name = body["full_name"]
+    # Validasi dulu, baru ubah apapun — supaya request yang ditolak tidak setengah tersimpan.
+    full_name = body.get("full_name")
+    if "full_name" in body and (not isinstance(full_name, str) or not full_name.strip()):
+        return jsonify({"error": "full_name tidak boleh kosong"}), 400
+
+    date_of_birth = None
+    if "date_of_birth" in body and body["date_of_birth"]:
+        try:
+            date_of_birth = date.fromisoformat(body["date_of_birth"])
+        except (TypeError, ValueError):
+            return jsonify({"error": "date_of_birth harus berformat YYYY-MM-DD"}), 400
+        if date_of_birth > datetime.now(timezone.utc).date():
+            return jsonify({"error": "date_of_birth tidak boleh di masa depan"}), 400
 
     if "new_password" in body:
         current_password = body.get("current_password")
         if not current_password or not check_password_hash(current_user.password_hash, current_password):
             return jsonify({"error": "current_password salah"}), 400
-        current_user.password_hash = generate_password_hash(body["new_password"])
+        new_password = body["new_password"]
+        if not isinstance(new_password, str) or len(new_password) < MIN_PASSWORD_LENGTH:
+            return jsonify({"error": f"new_password minimal {MIN_PASSWORD_LENGTH} karakter"}), 400
+        current_user.password_hash = generate_password_hash(new_password)
+
+    if "full_name" in body:
+        current_user.full_name = full_name.strip()
+        if patient is not None:
+            patient.name = full_name.strip()
+
+    if patient is not None and "date_of_birth" in body:
+        patient.date_of_birth = date_of_birth
 
     db.session.commit()
     return jsonify({"status": "ok"})
@@ -303,6 +348,11 @@ def repair_device():
         return jsonify({"error": "pairing_code tidak ditemukan"}), 404
     if pairing.used:
         return jsonify({"error": "pairing_code sudah dipakai"}), 409
+
+    # "Hubungkan ulang" = mengganti perangkat: lepaskan perangkat lama supaya query
+    # `Device.patient_id == patient.id` di endpoint lain tidak ambigu antara dua perangkat.
+    for old_device in db.session.query(Device).filter_by(patient_id=patient.id).all():
+        old_device.patient_id = None
 
     pairing.used = True
     pairing.used_by_patient_id = patient.id

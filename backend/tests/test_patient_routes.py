@@ -279,3 +279,138 @@ def test_history_wear_compliance_by_day_and_pattern_insight(app, client):
     body = response.get_json()
     assert len(body["wear_compliance_by_day"]) == 1
     assert body["pattern_insight"] is not None
+
+
+def test_summary_includes_device_info(app, client):
+    _seed_patient_with_device(app)
+    with app.app_context():
+        device = db.session.get(Device, "pneumacare-a1b2")
+        device.battery_percent = 78
+        db.session.commit()
+    _login_patient(client)
+
+    body = client.get("/api/v1/patient/me/summary").get_json()
+
+    assert body["device"]["device_id"] == "pneumacare-a1b2"
+    assert body["device"]["battery_percent"] == 78
+    assert body["device"]["status"] == "online"
+
+
+def test_summary_without_device_has_null_device(app, client):
+    create_user(app, "tanpa-device@example.com", "password123", "pasien")
+    with app.app_context():
+        user = db.session.query(User).filter_by(email="tanpa-device@example.com").one()
+        db.session.add(Patient(user_id=user.id, name="Tanpa Device"))
+        db.session.commit()
+    login_as(client, "tanpa-device@example.com", "password123")
+
+    body = client.get("/api/v1/patient/me/summary").get_json()
+
+    assert body["device"] is None
+    assert body["device_connected"] is False
+
+
+def test_profile_includes_assigned_clinician(app, client):
+    _seed_patient_with_device(app)
+    with app.app_context():
+        clinician = User(
+            email="dokter@example.com",
+            password_hash=generate_password_hash("password123"),
+            role="clinician",
+            full_name="dr. Test",
+            specialization="Paru",
+            institution="RS Test",
+        )
+        db.session.add(clinician)
+        db.session.flush()
+        db.session.get(Patient, "patient-1").assigned_clinician_id = clinician.id
+        db.session.commit()
+    _login_patient(client)
+
+    body = client.get("/api/v1/patient/me/profile").get_json()
+
+    assert body["clinician"] == {"full_name": "dr. Test", "specialization": "Paru", "institution": "RS Test"}
+    assert body["device"]["device_id"] == "pneumacare-a1b2"
+
+
+def test_profile_without_clinician_is_null(app, client):
+    _seed_patient_with_device(app)
+    _login_patient(client)
+
+    assert client.get("/api/v1/patient/me/profile").get_json()["clinician"] is None
+
+
+def test_update_profile_date_of_birth(app, client):
+    _seed_patient_with_device(app)
+    _login_patient(client)
+
+    response = client.put("/api/v1/patient/me/profile", json={"date_of_birth": "1962-05-14"})
+
+    assert response.status_code == 200
+    assert client.get("/api/v1/patient/me/profile").get_json()["date_of_birth"] == "1962-05-14"
+
+
+def test_update_profile_invalid_date_of_birth_returns_400(app, client):
+    _seed_patient_with_device(app)
+    _login_patient(client)
+
+    assert client.put("/api/v1/patient/me/profile", json={"date_of_birth": "bukan-tanggal"}).status_code == 400
+    assert client.put("/api/v1/patient/me/profile", json={"date_of_birth": "2999-01-01"}).status_code == 400
+
+
+def test_update_profile_empty_name_returns_400_and_changes_nothing(app, client):
+    _seed_patient_with_device(app)
+    _login_patient(client)
+
+    response = client.put("/api/v1/patient/me/profile", json={"full_name": "   ", "date_of_birth": "1962-05-14"})
+
+    assert response.status_code == 400
+    assert client.get("/api/v1/patient/me/profile").get_json()["date_of_birth"] is None
+
+
+def test_update_profile_short_new_password_returns_400(app, client):
+    _seed_patient_with_device(app)
+    _login_patient(client)
+
+    response = client.put(
+        "/api/v1/patient/me/profile",
+        json={"new_password": "short", "current_password": "password123"},
+    )
+
+    assert response.status_code == 400
+
+
+def test_device_repair_unlinks_previous_device(app, client):
+    _seed_patient_with_device(app)
+    with app.app_context():
+        db.session.add(Device(device_id="pneumacare-c3d4", status="offline"))
+        db.session.add(DevicePairingCode(device_id="pneumacare-c3d4", pairing_code="NEWCODE"))
+        db.session.commit()
+    _login_patient(client)
+
+    client.post("/api/v1/patient/me/device/repair", json={"pairing_code": "NEWCODE"})
+
+    with app.app_context():
+        assert db.session.get(Device, "pneumacare-a1b2").patient_id is None
+        assert db.session.get(Device, "pneumacare-c3d4").patient_id == "patient-1"
+    assert client.get("/api/v1/patient/me/summary").get_json()["device"]["device_id"] == "pneumacare-c3d4"
+
+
+def test_history_pattern_insight_uses_local_time_not_utc(app, client):
+    _seed_patient_with_device(app)
+    with app.app_context():
+        base = (datetime.now(timezone.utc) - timedelta(days=1)).replace(minute=0, second=0, microsecond=0)
+        # 01.00/02.00 UTC = 08.00/09.00 WIB (pagi) dengan HR stabil;
+        # 13.00/14.00 UTC = 20.00/21.00 WIB (malam) dengan HR tidak stabil.
+        for hour, hr in [(1, 70), (2, 71), (13, 60), (14, 90)]:
+            db.session.add(
+                ReadingVital(
+                    device_id="pneumacare-a1b2", timestamp=base.replace(hour=hour), hr=hr, spo2=97, rr=16
+                )
+            )
+        db.session.commit()
+    _login_patient(client)
+
+    body = client.get("/api/v1/patient/me/history?range=7d").get_json()
+
+    assert body["pattern_insight"] == "Detak jantung Anda paling stabil di pagi hari."
