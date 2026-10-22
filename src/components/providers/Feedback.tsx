@@ -14,9 +14,13 @@ import {
 import { Field } from "@/components/ui/Field";
 import { CircleAlert, CircleCheck, Icon, X } from "@/components/ui/Icon";
 import { btn, cn, Notice } from "@/components/ui/primitives";
-import { VALID_PAIR_CODES } from "@/lib/demo-data";
-import { updateDemo, useDemo } from "@/lib/demo-store";
-import { focusFirstInvalid, isEmail, validateForm, type FieldErrors } from "@/lib/validation";
+import { PATIENT_RELOAD_EVENT } from "@/components/providers/PatientData";
+import { ApiError } from "@/lib/api";
+import { logout } from "@/lib/authApi";
+import { addPatient } from "@/lib/clinicianApi";
+import { CLINICIAN_RELOAD_EVENT } from "@/lib/clinicianPatients";
+import { repairDevice } from "@/lib/patientApi";
+import { focusFirstInvalid, validateForm, type FieldErrors } from "@/lib/validation";
 
 export type ModalKind = "pair" | "add" | "forgot" | "logout";
 
@@ -50,7 +54,6 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
   const [kind, setKind] = useState<ModalKind | null>(null);
   const [session, setSession] = useState(0);
   const [toastState, setToastState] = useState<{ text: string; error: boolean; id: number } | null>(null);
-  const extra = useDemo((d) => d.extra);
 
   const toast = useCallback((text: string, error = false) => {
     clearTimeout(toastTimer.current);
@@ -109,12 +112,21 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
                 key={session}
                 kind={kind}
                 onClose={closeModal}
-                onLogout={() => {
+                onLogout={async () => {
+                  try {
+                    await logout();
+                  } catch (error) {
+                    // 401 = sesi sudah berakhir, tetap lanjut keluar. Selain itu (mis. server mati)
+                    // sesi masih aktif di server, jadi jangan berpura-pura sudah keluar.
+                    if (!(error instanceof ApiError && error.status === 401)) {
+                      toast("Gagal keluar dari akun. Periksa koneksi ke server lalu coba lagi.", true);
+                      return;
+                    }
+                  }
                   closeModal();
                   router.push("/login");
                 }}
                 toast={toast}
-                extraEmails={extra.map((p) => p.email ?? "")}
               />
             </div>
           </>
@@ -154,59 +166,64 @@ function ModalBody({
   onClose,
   onLogout,
   toast,
-  extraEmails,
 }: {
   kind: ModalKind;
   onClose: () => void;
-  onLogout: () => void;
+  onLogout: () => void | Promise<void>;
   toast: (text: string, error?: boolean) => void;
-  extraEmails: string[];
 }) {
   const [errors, setErrors] = useState<FieldErrors>({});
+  const [busy, setBusy] = useState(false);
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (busy) return;
     const form = event.currentTarget;
     const v = Object.fromEntries(new FormData(form)) as Record<string, string>;
-    let next = validateForm(form);
-    if (!Object.keys(next).length) {
-      if (kind === "pair" && !VALID_PAIR_CODES.includes(v["modal-paircode"].toUpperCase()))
-        next = { "modal-paircode": "Kode pairing tidak ditemukan. Periksa kembali kode." };
-      if (kind === "add") {
-        const code = v["modal-patient"];
-        if (!isEmail(code) && !/^INV-\d{4}$/.test(code))
-          next = { "modal-patient": "Gunakan email valid atau kode seperti INV-4821." };
-        else if (extraEmails.includes(code)) next = { "modal-patient": "Pasien ini sudah ditambahkan." };
-      }
-    }
+    const next = validateForm(form);
     setErrors(next);
     if (Object.keys(next).length) return focusFirstInvalid(form, next);
 
     if (kind === "pair") {
-      onClose();
-      toast("Perangkat PC-001 berhasil dihubungkan.");
+      setBusy(true);
+      try {
+        const { device_id } = await repairDevice(v["modal-paircode"].trim().toUpperCase());
+        onClose();
+        window.dispatchEvent(new Event(PATIENT_RELOAD_EVENT));
+        toast(`Perangkat ${device_id} berhasil dihubungkan.`);
+      } catch (error) {
+        setBusy(false);
+        if (error instanceof ApiError && error.status === 404) {
+          setErrors({ "modal-paircode": "Kode pairing tidak ditemukan. Periksa kembali kode." });
+        } else if (error instanceof ApiError && error.status === 409) {
+          setErrors({ "modal-paircode": "Kode pairing ini sudah digunakan." });
+        } else {
+          toast(
+            error instanceof ApiError ? error.message : "Tidak dapat terhubung ke server. Coba lagi sebentar lagi.",
+            true,
+          );
+        }
+      }
+      return;
     }
     if (kind === "add") {
-      updateDemo((d) => ({
-        ...d,
-        extra: [
-          ...d.extra,
-          {
-            id: "demo-" + Date.now(),
-            name: v["modal-name"],
-            email: v["modal-patient"],
-            age: null,
-            device: "Belum dipairing",
-            hr: null,
-            spo2: null,
-            rr: null,
-            status: "off",
-            online: false,
-          },
-        ],
-      }));
-      onClose();
-      toast("Pasien berhasil ditambahkan ke daftar pemantauan.");
+      setBusy(true);
+      try {
+        const patient = await addPatient(v["modal-patient"].trim().toLowerCase());
+        onClose();
+        window.dispatchEvent(new Event(CLINICIAN_RELOAD_EVENT));
+        toast(`${patient.name} ditambahkan ke daftar pemantauan.`);
+      } catch (error) {
+        setBusy(false);
+        if (error instanceof ApiError && error.status === 404) {
+          setErrors({ "modal-patient": "Tidak ada akun pasien dengan email tersebut." });
+        } else if (error instanceof ApiError && error.status === 409) {
+          setErrors({ "modal-patient": error.message.charAt(0).toUpperCase() + error.message.slice(1) + "." });
+        } else {
+          toast(error instanceof ApiError ? error.message : "Tidak dapat terhubung ke server. Coba lagi sebentar lagi.", true);
+        }
+      }
+      return;
     }
     if (kind === "forgot") {
       onClose();
@@ -227,8 +244,17 @@ function ModalBody({
         <p className="text-muted">Anda akan kembali ke halaman login.</p>
         <div className={modalActions}>
           {cancel}
-          <button type="button" className={btn({ variant: "danger" })} onClick={onLogout}>
-            Keluar
+          <button
+            type="button"
+            disabled={busy}
+            className={btn({ variant: "danger" })}
+            onClick={async () => {
+              setBusy(true);
+              await onLogout();
+              setBusy(false);
+            }}
+          >
+            {busy ? "Keluar…" : "Keluar"}
           </button>
         </div>
       </>
@@ -240,7 +266,7 @@ function ModalBody({
         {kind === "pair"
           ? "Masukkan kode pairing yang tertera pada perangkat Anda."
           : kind === "add"
-            ? "Gunakan email pasien atau kode undangan untuk menghubungkan akun."
+            ? "Masukkan email akun pasien yang sudah terdaftar. Pasien akan muncul di daftar pemantauan Anda."
             : "Masukkan email Anda untuk melihat petunjuk bantuan akun demo."}
       </p>
       <form noValidate onSubmit={submit}>
@@ -258,13 +284,13 @@ function ModalBody({
           <>
             <Field
               name="modal-patient"
-              label="Email / kode pasien"
-              hint="Contoh: pasien@example.com atau INV-4821"
+              label="Email pasien"
+              type="email"
+              hint="Contoh: pasien@example.com"
               required
               error={errors["modal-patient"]}
               className={fieldCls}
             />
-            <Field name="modal-name" label="Nama pasien" required error={errors["modal-name"]} className={fieldCls} />
           </>
         )}
         {kind === "forgot" && (
@@ -286,8 +312,16 @@ function ModalBody({
         {kind !== "forgot" && <div role="alert" />}
         <div className={modalActions}>
           {cancel}
-          <button type="submit" className={btn({ variant: "primary" })}>
-            {kind === "pair" ? "Hubungkan" : kind === "add" ? "Tambah Pasien" : "Lanjut"}
+          <button type="submit" disabled={busy} className={btn({ variant: "primary" })}>
+            {kind === "pair"
+              ? busy
+                ? "Menghubungkan…"
+                : "Hubungkan"
+              : kind === "add"
+                ? busy
+                  ? "Menambahkan…"
+                  : "Tambah Pasien"
+                : "Lanjut"}
           </button>
         </div>
       </form>

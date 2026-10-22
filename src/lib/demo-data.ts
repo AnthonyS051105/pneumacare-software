@@ -75,12 +75,8 @@ export const values: Record<VitalKey, Vital> = {
   rr: { label: "Laju napas", technical: "Respiratory Rate", value: 18, unit: "napas/menit", color: "#23746b", icon: "wind", series: [18, 17, 18, 19, 18, 18, 17, 18, 19, 18, 18, 18], min: 12, max: 24 },
 };
 
-/** Pasien yang sedang login di portal pasien (fixture). */
-export const CURRENT_PATIENT_ID = "budi";
-
 export const DEMO_PASSWORD = "Pneuma123!";
 export const DEMO_PATIENT_EMAIL = "budi@example.com";
 export const DEMO_CLINICIAN_EMAIL = "nadia@example.com";
-export const VALID_PAIR_CODES = ["PC-4821", "PC-001"];
 
 export const statusOrder: Record<PatientStatus, number> = { urgent: 0, warn: 1, off: 2, stable: 3 };
