@@ -13,6 +13,7 @@ from backend.api.routes import api_bp
 from backend.auth.auth_routes import auth_bp
 from backend.config import Config
 from backend.inference.model_startup import load_model_a_or_none
+from backend.ingestion.device_watchdog import start_device_watchdog
 from backend.ingestion.mqtt_subscriber import start_mqtt_subscriber
 from backend.ingestion.websocket_server import register_websocket_routes
 from backend.models import db
@@ -61,6 +62,8 @@ def create_app(config_class: type = Config, start_mqtt: bool = True, load_infere
     if start_mqtt:
         # NFR-SW-002: tidak boleh crash bila broker belum jalan — lihat start_mqtt_subscriber.
         app.mqtt_client = start_mqtt_subscriber(app)
+        # FR-SW-004: perangkat tanpa heartbeat > DEVICE_OFFLINE_TIMEOUT_SECONDS ditandai offline.
+        app.device_watchdog_stop = start_device_watchdog(app)
 
     @app.get("/api/v1/health")
     def health():
