@@ -30,6 +30,10 @@ export type Alert = {
   level: AlertLevel;
   resolved: boolean;
   ack?: boolean;
+  /** Pesan bahasa awam dari API (portal pasien); bila ada, menggantikan teks bawaan fixture. */
+  message?: string;
+  /** Nama pasien dari API (portal tenaga medis); menggantikan pencarian di fixture. */
+  patientName?: string;
 };
 
 export type VitalKey = "hr" | "spo2" | "rr";
