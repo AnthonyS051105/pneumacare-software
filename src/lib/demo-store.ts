@@ -105,7 +105,7 @@ const uiDefaults: UiState = {
   alertLevel: "all",
   alertPatient: "all",
   alertAck: "all",
-  alertDate: "2026-10-10",
+  alertDate: "all",
   sortOrder: "priority",
 };
 

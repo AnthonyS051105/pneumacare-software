@@ -5,11 +5,20 @@ import Link from "next/link";
 import careClinician from "@/assets/care-clinician.png";
 import { ModalButton } from "@/components/providers/Feedback";
 import { ChevronRight, CircleAlert, Icon, Plus, Search, TriangleAlert, Users, WifiOff } from "@/components/ui/Icon";
-import { Avatar, btn, card, cn, Empty, Pill, type PillTone } from "@/components/ui/primitives";
-import { patients, statusOrder, type Patient } from "@/lib/demo-data";
-import { useDemo, useUi } from "@/lib/demo-store";
+import { useEffect } from "react";
+import { Avatar, btn, card, cn, Empty, Notice, Pill, type PillTone } from "@/components/ui/primitives";
+import { fetchPatients, type ClinicianPatient } from "@/lib/clinicianApi";
+import { ageFrom, CLINICIAN_RELOAD_EVENT, patientStatus, POLL_MS } from "@/lib/clinicianPatients";
+import { statusOrder, type PatientStatus } from "@/lib/demo-data";
+import { useUi } from "@/lib/demo-store";
+import { formatClockWib, parseApiDate } from "@/lib/format";
 import { toolbar, toolbarSelect } from "@/components/portal/layout";
 import { detailHref } from "@/lib/routes";
+import { useApi } from "@/lib/useApi";
+
+type Row = ClinicianPatient & { status: PatientStatus; online: boolean };
+
+const round = (v: number | null) => (v === null ? "N/A" : String(Math.round(v)));
 
 
 const SUMMARY_ICON_COLOR: Record<PillTone, string> = {
@@ -26,18 +35,33 @@ const td =
 const th = "text-left bg-[#f3f8f6] text-[#627464] text-[11px] font-medium px-4 py-3.5 whitespace-nowrap";
 
 export function ClinicianPatientsView() {
-  const extra = useDemo((d) => d.extra);
   const [filter, setFilter] = useUi("patientFilter");
   const [search, setSearch] = useUi("searchText");
   const [sort, setSort] = useUi("sortOrder");
-  const all: Patient[] = [...patients, ...extra];
+  const state = useApi(fetchPatients, "patients", { pollMs: POLL_MS.list });
+  const { reload } = state;
+
+  useEffect(() => {
+    window.addEventListener(CLINICIAN_RELOAD_EVENT, reload);
+    return () => window.removeEventListener(CLINICIAN_RELOAD_EVENT, reload);
+  }, [reload]);
+
+  const all: Row[] =
+    state.status === "ready"
+      ? state.data.map((p) => ({ ...p, status: patientStatus(p), online: p.device?.status === "online" }))
+      : [];
   const list = all
     .filter(
       (p) =>
         (filter === "all" || p.status === filter) &&
-        (p.name + " " + p.device + " " + p.id).toLowerCase().includes(search.toLowerCase()),
+        [p.name, p.device?.device_id ?? "", p.email ?? "", p.id].join(" ").toLowerCase().includes(search.toLowerCase()),
     )
-    .sort((a, b) => (sort === "name" ? a.name.localeCompare(b.name) : statusOrder[a.status] - statusOrder[b.status]));
+    // Urutan prioritas: status, lalu level alert terbuka (urutan backend, FR-SW-057), lalu nama.
+    .sort((a, b) =>
+      sort === "name"
+        ? a.name.localeCompare(b.name)
+        : statusOrder[a.status] - statusOrder[b.status] || a.name.localeCompare(b.name),
+    );
 
   const summary: [string, number, typeof Users, PillTone][] = [
     ["Total pasien", all.length, Users, ""],
@@ -108,7 +132,7 @@ export function ClinicianPatientsView() {
           <input
             id="patient-search"
             aria-label="Cari pasien"
-            placeholder="Cari nama atau ID pasien..."
+            placeholder="Cari nama, email, atau ID perangkat..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full border border-[#cdd8cf] rounded-[5px] py-[11px] pr-3 pl-10 bg-white text-ink min-h-[45px] leading-[1.5]"
@@ -139,6 +163,14 @@ export function ClinicianPatientsView() {
         </select>
       </div>
 
+      {state.status === "error" && (
+        <div role="alert" className="mb-5">
+          <Notice type="error">{state.message}</Notice>
+          <button type="button" className={cn(btn({ small: true }), "mt-3")} onClick={state.reload}>
+            Coba lagi
+          </button>
+        </div>
+      )}
       <div className={cn(card, "p-0 overflow-hidden max-2xl:p-5 max-md:p-0")}>
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-[12px] max-md:block">
@@ -168,20 +200,23 @@ export function ClinicianPatientsView() {
                           {p.name}
                         </Link>
                         <small className="block text-[10px] mt-[3px]">
-                          {p.age ? p.age + " tahun, " : ""}
-                          {p.device}
+                          {(() => {
+                            const age = ageFrom(p.date_of_birth);
+                            return age !== null ? age + " tahun, " : "";
+                          })()}
+                          {p.device?.device_id ?? "Belum ada rompi"}
                         </small>
                       </div>
                     </div>
                   </td>
                   <td data-label="HR (bpm)" className={td}>
-                    {p.hr ?? "N/A"}
+                    {p.online ? round(p.latest_vitals.hr) : "N/A"}
                   </td>
                   <td data-label="SpO₂ (%)" className={td}>
-                    {p.spo2 ?? "N/A"}
+                    {p.online ? round(p.latest_vitals.spo2) : "N/A"}
                   </td>
                   <td data-label="RR (/menit)" className={td}>
-                    {p.rr ?? "N/A"}
+                    {p.online ? round(p.latest_vitals.rr) : "N/A"}
                   </td>
                   <td data-label="Status" className={td}>
                     <Pill tone={p.status === "stable" ? "" : p.status} className="max-md:text-[10px]">
@@ -194,9 +229,13 @@ export function ClinicianPatientsView() {
                     </Pill>
                   </td>
                   <td data-label="Pembaruan" className={td}>
-                    {p.online ? "09.30 WIB" : "09.10 WIB"}
+                    {p.latest_vitals.timestamp ? formatClockWib(parseApiDate(p.latest_vitals.timestamp)) : "—"}
                     <small className="block text-[10px] mt-[3px]">
-                      {p.online ? "Data terkini" : "Nilai terkini tidak tersedia"}
+                      {!p.latest_vitals.timestamp
+                        ? "Belum ada data"
+                        : p.online
+                          ? "Data terkini"
+                          : "Nilai terkini tidak tersedia"}
                     </small>
                   </td>
                   <td className={cn(td, "max-md:self-end max-md:text-right")}>
@@ -212,7 +251,19 @@ export function ClinicianPatientsView() {
               ))}
             </tbody>
           </table>
-          {!list.length && (
+          {state.status === "loading" && (
+            <p role="status" className="py-10 text-center text-muted text-[13px]">
+              Memuat daftar pasien…
+            </p>
+          )}
+          {state.status === "ready" && !all.length && (
+            <Empty
+              icon={Users}
+              title="Belum ada pasien"
+              text="Tambahkan pasien memakai email akun pasien yang sudah terdaftar."
+            />
+          )}
+          {state.status === "ready" && all.length > 0 && !list.length && (
             <Empty icon={Search} title="Pasien tidak ditemukan" text="Coba nama atau filter yang berbeda." />
           )}
         </div>
