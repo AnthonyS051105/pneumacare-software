@@ -8,8 +8,9 @@ import { useFeedback } from "@/components/providers/Feedback";
 import { Field } from "@/components/ui/Field";
 import { ArrowRight, Icon } from "@/components/ui/Icon";
 import { btn, cn, Notice } from "@/components/ui/primitives";
-import { VALID_PAIR_CODES } from "@/lib/demo-data";
-import { updateDemo, useUi } from "@/lib/demo-store";
+import { ApiError } from "@/lib/api";
+import { homePathFor, signup } from "@/lib/authApi";
+import { useUi } from "@/lib/demo-store";
 import { focusFirstInvalid, validateForm, type FieldErrors } from "@/lib/validation";
 
 export function SignupForm({ role }: { role: "patient" | "clinician" }) {
@@ -19,12 +20,14 @@ export function SignupForm({ role }: { role: "patient" | "clinician" }) {
   const [, setChosenRole] = useUi("chosenRole");
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   // Seperti referensi: membuka langkah 2 ikut mengingat peran terpilih.
   useEffect(() => setChosenRole(clinician ? "clinician" : "pasien"), [clinician]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitting) return;
     const form = event.currentTarget;
     let next = validateForm(form);
     setFormError("");
@@ -35,22 +38,49 @@ export function SignupForm({ role }: { role: "patient" | "clinician" }) {
         setErrors({});
         setFormError("Persetujuan penggunaan data demo diperlukan.");
         return;
-      } else if (!clinician && !VALID_PAIR_CODES.includes(v.paircode.toUpperCase()))
-        next = { paircode: "Kode pairing tidak ditemukan. Gunakan PC-4821 pada demo." };
+      }
     }
     setErrors(next);
     if (Object.keys(next).length) return focusFirstInvalid(form, next);
-    updateDemo((d) => ({
-      ...d,
-      [role]: {
-        ...d[role],
-        name: v.name,
-        email: v.email,
-        ...(clinician ? { str: v.str, specialty: v.specialty, institution: v.institution } : {}),
-      },
-    }));
-    router.push(clinician ? "/clinician/patients" : "/patient/home");
-    toast("Akun demo berhasil dibuat. Anda telah masuk ke dashboard.");
+    setSubmitting(true);
+    try {
+      const user = await signup({
+        role: clinician ? "clinician" : "pasien",
+        email: v.email.trim().toLowerCase(),
+        password: v.password,
+        full_name: v.name.trim(),
+        ...(clinician
+          ? {
+              str_sip_number: v.str?.trim() || undefined,
+              specialization: v.specialty?.trim() || undefined,
+              institution: v.institution?.trim() || undefined,
+            }
+          : { pairing_code: v.paircode.trim().toUpperCase() }),
+      });
+      router.push(homePathFor(user.role));
+      toast("Akun berhasil dibuat. Anda telah masuk ke dashboard.");
+    } catch (error) {
+      setSubmitting(false);
+      if (!(error instanceof ApiError)) {
+        setFormError("Tidak dapat terhubung ke server. Pastikan backend sedang berjalan.");
+        return;
+      }
+      const pairingUsed = error.status === 409 && /pairing/i.test(error.message);
+      const field: FieldErrors | null =
+        error.status === 404
+          ? { paircode: "Kode pairing tidak ditemukan. Periksa kembali kode pada rompi Anda." }
+          : pairingUsed
+            ? { paircode: "Kode pairing ini sudah digunakan oleh akun lain." }
+            : error.status === 409
+              ? { email: "Email ini sudah terdaftar. Silakan masuk atau gunakan email lain." }
+              : null;
+      if (field) {
+        setErrors(field);
+        focusFirstInvalid(form, field);
+      } else {
+        setFormError(error.message);
+      }
+    }
   }
 
   return (
@@ -85,8 +115,8 @@ export function SignupForm({ role }: { role: "patient" | "clinician" }) {
           <input type="checkbox" name="terms" required /> Saya menyetujui penggunaan data untuk demo pemantauan.
         </label>
         <div role="alert">{formError && <Notice type="error" small>{formError}</Notice>}</div>
-        <button type="submit" className={cn(btn({ variant: "primary", full: true }), "mt-6")}>
-          Buat Akun <Icon icon={ArrowRight} />
+        <button type="submit" disabled={submitting} className={cn(btn({ variant: "primary", full: true }), "mt-6")}>
+          {submitting ? "Memproses…" : "Buat Akun"} <Icon icon={ArrowRight} />
         </button>
       </form>
       <p className={cn("text-center mt-6", authMuted)}>

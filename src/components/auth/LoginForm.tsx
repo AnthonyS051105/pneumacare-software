@@ -8,6 +8,8 @@ import { useFeedback } from "@/components/providers/Feedback";
 import { Field } from "@/components/ui/Field";
 import { ArrowRight, Icon } from "@/components/ui/Icon";
 import { btn, cn, Notice } from "@/components/ui/primitives";
+import { ApiError } from "@/lib/api";
+import { homePathFor, login } from "@/lib/authApi";
 import { DEMO_CLINICIAN_EMAIL, DEMO_PASSWORD, DEMO_PATIENT_EMAIL } from "@/lib/demo-data";
 import { focusFirstInvalid, validateForm, type FieldErrors } from "@/lib/validation";
 
@@ -19,6 +21,7 @@ export function LoginForm() {
   const formRef = useRef<HTMLFormElement>(null);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     try {
@@ -39,26 +42,31 @@ export function LoginForm() {
     emailInput.focus();
   }
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitting) return;
     const form = event.currentTarget;
     const next = validateForm(form);
     setErrors(next);
     setFormError("");
     if (Object.keys(next).length) return focusFirstInvalid(form, next);
     const v = Object.fromEntries(new FormData(form)) as Record<string, string>;
-    const email = v.email.toLowerCase();
-    const clinician = email === DEMO_CLINICIAN_EMAIL;
-    const patient = email === DEMO_PATIENT_EMAIL;
-    if ((!clinician && !patient) || v.password !== DEMO_PASSWORD) {
-      setFormError("Email atau password salah.");
-      return;
-    }
+    setSubmitting(true);
     try {
-      if (v.remember) localStorage.setItem(REMEMBER_KEY, v.email);
-      else localStorage.removeItem(REMEMBER_KEY);
-    } catch {}
-    router.push(clinician ? "/clinician/patients" : "/patient/home");
+      const user = await login(v.email.trim().toLowerCase(), v.password);
+      try {
+        if (v.remember) localStorage.setItem(REMEMBER_KEY, v.email);
+        else localStorage.removeItem(REMEMBER_KEY);
+      } catch {}
+      router.push(homePathFor(user.role));
+    } catch (error) {
+      setFormError(
+        error instanceof ApiError
+          ? error.message
+          : "Tidak dapat terhubung ke server. Pastikan backend sedang berjalan.",
+      );
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -83,8 +91,8 @@ export function LoginForm() {
           </button>
         </div>
         <div role="alert">{formError && <Notice type="error" small>{formError}</Notice>}</div>
-        <button type="submit" className={cn(btn({ variant: "primary", full: true }), "mt-6")}>
-          Masuk <Icon icon={ArrowRight} />
+        <button type="submit" disabled={submitting} className={cn(btn({ variant: "primary", full: true }), "mt-6")}>
+          {submitting ? "Memproses…" : "Masuk"} <Icon icon={ArrowRight} />
         </button>
       </form>
       <p className={cn("text-center mt-6", authMuted)}>
