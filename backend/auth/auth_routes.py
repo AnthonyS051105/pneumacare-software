@@ -15,6 +15,7 @@ from backend.models.user import User
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/v1/auth")
 
 VALID_ROLES = ("pasien", "clinician")
+MIN_PASSWORD_LENGTH = 8
 
 
 def _user_public_dict(user: User) -> dict:
@@ -34,6 +35,9 @@ def signup():
         return jsonify({"error": f"role harus salah satu dari {VALID_ROLES}"}), 400
     if not email or not password or not full_name:
         return jsonify({"error": "email, password, dan full_name wajib diisi"}), 400
+
+    if not isinstance(password, str) or len(password) < MIN_PASSWORD_LENGTH:
+        return jsonify({"error": f"password minimal {MIN_PASSWORD_LENGTH} karakter"}), 400
 
     if db.session.query(User).filter_by(email=email).first() is not None:
         return jsonify({"error": "email sudah terdaftar"}), 409

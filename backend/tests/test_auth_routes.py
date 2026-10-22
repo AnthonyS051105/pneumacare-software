@@ -178,3 +178,12 @@ def test_logout_then_protected_endpoint_requires_login_again(app, client):
 
     response = client.get("/api/v1/clinician/profile")
     assert response.status_code == 401
+
+
+def test_signup_short_password_returns_400(client):
+    response = client.post(
+        "/api/v1/auth/signup",
+        json={"role": "clinician", "email": "dr2@example.com", "password": "short", "full_name": "Dr. Test"},
+    )
+
+    assert response.status_code == 400
