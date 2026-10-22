@@ -9,6 +9,18 @@ BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 # duluan sebelum mencapai backend/.env, membuat semua config di sini diam-diam kosong.
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
+# Root repo software/ — path relatif di .env (mis. MODEL_A_CHECKPOINT_PATH=ai_reference/...)
+# diresolusi terhadap folder ini, BUKAN cwd. Sebelumnya backend yang dijalankan dari
+# backend/ (pytest, simulator) diam-diam tidak menemukan checkpoint dan jatuh ke mock.
+REPO_ROOT = os.path.dirname(BASE_DIR)
+
+
+def resolve_repo_path(path: str) -> str:
+    """Path kosong/absolut dikembalikan apa adanya; path relatif digabung dengan REPO_ROOT."""
+    if not path or os.path.isabs(path):
+        return path
+    return os.path.join(REPO_ROOT, path)
+
 
 class Config:
     SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key")
@@ -77,7 +89,7 @@ class Config:
     # (default) berarti checkpoint belum tersedia di environment ini — backend HARUS
     # fallback otomatis ke mock_inference dengan log warning jelas (SDD_SOFTWARE.md §9),
     # bukan crash saat startup.
-    MODEL_A_CHECKPOINT_PATH = os.environ.get("MODEL_A_CHECKPOINT_PATH", "")
+    MODEL_A_CHECKPOINT_PATH = resolve_repo_path(os.environ.get("MODEL_A_CHECKPOINT_PATH", ""))
 
     # Dipakai untuk mengisi kolom wheeze_crackle_model_version di DB dan field
     # model_version di skema output (§4.1) — identifikasi checkpoint mana yang dipakai

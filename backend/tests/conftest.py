@@ -10,6 +10,9 @@ from backend.models.user import User
 class TestConfig(Config):
     TESTING = True
     SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
+    # Tes endpoint memakai mock_inference agar cepat & deterministik; tes yang menguji
+    # Model A sungguhan memuat checkpoint-nya sendiri (lihat test_model_loader/inference).
+    MODEL_A_CHECKPOINT_PATH = ""
 
 
 @pytest.fixture

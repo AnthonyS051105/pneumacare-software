@@ -1,4 +1,5 @@
 import logging
+import os
 
 from flask import Flask
 from flask_cors import CORS
@@ -20,7 +21,7 @@ from backend.models.user import User
 login_manager = LoginManager()
 
 
-def create_app(config_class: type = Config, start_mqtt: bool = True) -> Flask:
+def create_app(config_class: type = Config, start_mqtt: bool = True, load_inference_model: bool = True) -> Flask:
     app = Flask(__name__)
     app.config.from_object(config_class)
 
@@ -47,7 +48,9 @@ def create_app(config_class: type = Config, start_mqtt: bool = True) -> Flask:
     # SDD_SOFTWARE.md §9: model gagal load -> fallback otomatis ke mock_inference
     # dengan log warning jelas, bukan crash startup. Disimpan di app.config supaya
     # websocket_server.py bisa akses via current_app tanpa import langsung app.py.
-    app.config["_INFERENCE_MODEL"] = load_model_a_or_none(app.config.get("MODEL_A_CHECKPOINT_PATH", ""))
+    app.config["_INFERENCE_MODEL"] = (
+        load_model_a_or_none(app.config.get("MODEL_A_CHECKPOINT_PATH", "")) if load_inference_model else None
+    )
 
     register_websocket_routes(app)
     app.register_blueprint(api_bp)
@@ -66,7 +69,18 @@ def create_app(config_class: type = Config, start_mqtt: bool = True) -> Flask:
     return app
 
 
-app = create_app()
+def _is_reloader_parent() -> bool:
+    """`python -m backend.app` (debug=True) menjalankan modul ini DUA kali: proses induk reloader
+    Werkzeug (hanya memantau perubahan file) dan proses anak yang benar-benar melayani request
+    (WERKZEUG_RUN_MAIN=true). Tanpa pengecekan ini kedua proses membuka subscriber MQTT sendiri,
+    sehingga setiap pesan PPG/status dari rompi diproses dua kali, dan model dimuat dua kali.
+    Bila modul di-import server lain (mis. gunicorn), ini False dan semuanya berjalan normal.
+    """
+    return __name__ == "__main__" and os.environ.get("WERKZEUG_RUN_MAIN") != "true"
+
+
+_serving = not _is_reloader_parent()
+app = create_app(start_mqtt=_serving, load_inference_model=_serving)
 
 if __name__ == "__main__":
     # host=0.0.0.0: harus bisa diakses dari device lain di jaringan lokal (ESP32),
