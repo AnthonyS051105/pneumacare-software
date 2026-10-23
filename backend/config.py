@@ -9,18 +9,6 @@ BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 # duluan sebelum mencapai backend/.env, membuat semua config di sini diam-diam kosong.
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
-# Root repo software/ — path relatif di .env (mis. MODEL_A_CHECKPOINT_PATH=ai_reference/...)
-# diresolusi terhadap folder ini, BUKAN cwd. Sebelumnya backend yang dijalankan dari
-# backend/ (pytest, simulator) diam-diam tidak menemukan checkpoint dan jatuh ke mock.
-REPO_ROOT = os.path.dirname(BASE_DIR)
-
-
-def resolve_repo_path(path: str) -> str:
-    """Path kosong/absolut dikembalikan apa adanya; path relatif digabung dengan REPO_ROOT."""
-    if not path or os.path.isabs(path):
-        return path
-    return os.path.join(REPO_ROOT, path)
-
 
 class Config:
     SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key")
@@ -35,8 +23,6 @@ class Config:
     MQTT_USERNAME = os.environ.get("MQTT_USERNAME", "")
     MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD", "")
 
-    MODEL_ARTIFACT_PATH = os.environ.get("MODEL_ARTIFACT_PATH", "")
-
     # ⚠️ Ambang klinis default — BELUM final, lihat INTEGRATION_CONTRACT.md §0 dan
     # SDD_SOFTWARE.md §3 (tabel `thresholds`). JANGAN dianggap sebagai nilai medis
     # yang sudah divalidasi. Menunggu rujukan literatur/dosen pembimbing.
@@ -46,7 +32,7 @@ class Config:
     RR_MIN_DEFAULT = None  # TODO_CLINICAL_VALUE
     RR_MAX_DEFAULT = None  # TODO_CLINICAL_VALUE
 
-    # 🔓 Ambang signifikansi |slope| (perubahan frekuensi wheeze/crackle per menit) yang
+    # 🔓 Ambang signifikansi |slope| (perubahan frekuensi abnormal per menit) yang
     # memicu trend_event(significant=true) — SDD_SOFTWARE.md §6. Nilai di bawah HANYA
     # placeholder operasional supaya modul bisa dites end-to-end, BUKAN nilai klinis yang
     # sudah divalidasi Nathanael. WAJIB dikonfirmasi sebelum dipakai di luar development/demo.
@@ -62,8 +48,7 @@ class Config:
 
     # --- Ingestion (Fase 1) ---
 
-    # ✅ Durasi segmen audio Model A — 5 detik, dikoreksi dari asumsi awal 10 detik
-    # (terverifikasi dari ai_reference/model.py, INTEGRATION_CONTRACT.md §4.1).
+    # ✅ Durasi segmen audio 5 detik sesuai INTEGRATION_CONTRACT.md §4.1.
     AUDIO_SEGMENT_DURATION_MS = 5_000
 
     # ⚠️ Nilai diusulkan di SRS_SOFTWARE.md FR-SW-004, belum divalidasi tim — timeout heartbeat
@@ -79,23 +64,9 @@ class Config:
     DEVICE_AUTH_TOKEN = os.environ.get("DEVICE_AUTH_TOKEN", "")
 
     # mock_inference.py (FR-SW-013) — skenario dummy yang dipakai.
-    # "random": probabilitas 4-kelas acak (dinormalisasi supaya total 1.0) tiap segmen.
-    # "wheeze_rising": probabilitas kelas "wheeze" naik bertahap tiap segmen berturut-turut, untuk demo trend analysis.
+    # "random": probabilitas 2-kelas acak tiap segmen.
+    # "abnormal_rising": probabilitas kelas "abnormal" naik bertahap untuk demo trend analysis.
     MOCK_INFERENCE_SCENARIO = os.environ.get("MOCK_INFERENCE_SCENARIO", "random")
-
-    # --- Model A: Wheeze/Crackle CNN (Fase 6) ---
-
-    # Path checkpoint PyTorch Lightning Model A (INTEGRATION_CONTRACT.md §4.1). Kosong
-    # (default) berarti checkpoint belum tersedia di environment ini — backend HARUS
-    # fallback otomatis ke mock_inference dengan log warning jelas (SDD_SOFTWARE.md §9),
-    # bukan crash saat startup.
-    MODEL_A_CHECKPOINT_PATH = resolve_repo_path(os.environ.get("MODEL_A_CHECKPOINT_PATH", ""))
-
-    # Dipakai untuk mengisi kolom wheeze_crackle_model_version di DB dan field
-    # model_version di skema output (§4.1) — identifikasi checkpoint mana yang dipakai
-    # untuk keperluan traceability/debug demo, TIDAK mengklaim model ini final/optimal
-    # (val_loss checkpoint epoch 5 masih menurun, lihat INTEGRATION_CONTRACT.md §4.1).
-    MODEL_A_VERSION = os.environ.get("MODEL_A_VERSION", "mobilenet_v3_small_epoch05_valloss0.9021")
 
     # --- Vitals / PPG (Fase 2) ---
 
@@ -164,3 +135,9 @@ class Config:
     # SISTEM, bukan nilai medis; tidak diatur di dokumen tim, perlu disepakati.
     ALERT_REPEAT_COOLDOWN_SECONDS = 600  # TODO_CLINICAL_VALUE (parameter tuning, bukan medis)
     LEVEL1_MARGIN_SPO2_ABS = 2  # TODO_CLINICAL_VALUE — poin persentase SpO2 (parameter satu-sisi, hanya min)
+
+    # --- ML service 2 kelas (HTTP) ---
+    # Kosongkan ML_SERVICE_URL untuk memaksa mock_inference tanpa koneksi HTTP (dipakai di test).
+    ML_SERVICE_URL = os.environ.get("ML_SERVICE_URL", "http://127.0.0.1:8000")
+    ML_SERVICE_TIMEOUT_SECONDS = float(os.environ.get("ML_SERVICE_TIMEOUT_SECONDS", "30"))
+    ML_SERVICE_MODEL_VERSION = os.environ.get("ML_SERVICE_MODEL_VERSION", "ast_model_v1.0")

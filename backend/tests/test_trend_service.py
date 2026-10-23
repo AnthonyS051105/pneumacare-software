@@ -22,10 +22,10 @@ def _seed_classifications(app, classes: list[str], interval_minutes: float = 1.0
                     channel_id=1,
                     segment_start=ts - timedelta(seconds=5),
                     segment_end=ts,
-                    wheeze_crackle_class=cls,
-                    wheeze_crackle_confidence=0.9,
-                    wheeze_crackle_probabilities=[0.1, 0.1, 0.1, 0.7],
-                    wheeze_crackle_model_version="test-version",
+                    predicted_class=cls,
+                    confidence=0.9,
+                    probabilities={"normal": 0.1, "abnormal": 0.9},
+                    model_version="test-version",
                 )
             )
         db.session.commit()
@@ -33,7 +33,7 @@ def _seed_classifications(app, classes: list[str], interval_minutes: float = 1.0
 
 def test_returns_none_when_not_enough_history(app):
     # TREND_ROLLING_WINDOW_SIZE default = 6 -> perlu >= window_size+1 segmen untuk >=2 titik
-    _seed_classifications(app, ["wheeze"] * 3)
+    _seed_classifications(app, ["abnormal"] * 3)
 
     with app.app_context():
         result = compute_and_save_trend(app, DEVICE_ID, channel_id=1)
@@ -43,9 +43,9 @@ def test_returns_none_when_not_enough_history(app):
         assert db.session.query(TrendEvent).count() == 0
 
 
-def test_rising_wheeze_frequency_produces_significant_trend(app):
-    # none -> makin sering wheeze seiring waktu, cukup segmen untuk >=2 rolling-window points
-    classes = ["none"] * 6 + ["wheeze"] * 6
+def test_rising_abnormal_frequency_produces_significant_trend(app):
+    # normal -> makin sering abnormal seiring waktu, cukup segmen untuk >=2 rolling-window points
+    classes = ["normal"] * 6 + ["abnormal"] * 6
     _seed_classifications(app, classes)
 
     with app.app_context():
@@ -53,6 +53,7 @@ def test_rising_wheeze_frequency_produces_significant_trend(app):
 
         assert result is not None
         assert result.slope > 0
+        assert result.significant is True
         stored = db.session.query(TrendEvent).one()
         assert stored.device_id == DEVICE_ID
         assert stored.significant == result.significant

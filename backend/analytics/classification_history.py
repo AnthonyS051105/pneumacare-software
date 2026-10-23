@@ -1,11 +1,11 @@
-"""Agregasi riwayat klasifikasi Model A per rentang waktu (FR-SW-053: grafik tren
-frekuensi wheeze/crackle di dashboard tenaga medis).
+"""Agregasi riwayat klasifikasi suara paru per rentang waktu (FR-SW-053: grafik tren
+abnormal di dashboard tenaga medis).
 
 Fungsi murni: input = daftar (segment_end, kelas) hasil klasifikasi, output = hitungan
 per bucket waktu. Dipisah dari I/O supaya bisa dites tanpa database.
 
-"Frekuensi" di sini = proporsi segmen berlabel wheeze/crackle/both terhadap seluruh segmen
-dalam bucket — sama dengan definisi frekuensi di trend_analysis (SDD_SOFTWARE.md §6), BUKAN
+"Frekuensi" di sini = proporsi segmen berlabel abnormal terhadap seluruh segmen dalam
+bucket — sama dengan definisi frekuensi di trend_analysis (SDD_SOFTWARE.md §6), BUKAN
 ukuran keparahan klinis. Bucket tanpa segmen tetap dikembalikan dengan total 0 supaya
 frontend bisa menggambar jeda, bukan menyambung garis melewati data yang tidak ada.
 """
@@ -13,13 +13,13 @@ frontend bisa menggambar jeda, bukan menyambung garis melewati data yang tidak a
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-CLASSES = ("none", "crackle", "wheeze", "both")
+CLASSES = ("normal", "abnormal")
 
 
 @dataclass(frozen=True)
 class ClassifiedSegment:
     segment_end: datetime
-    wheeze_crackle_class: str
+    predicted_class: str
 
 
 def bucket_classifications(
@@ -45,16 +45,14 @@ def bucket_classifications(
             continue
         row = rows[(segment.segment_end - start) // bucket]
         row["total"] += 1
-        if segment.wheeze_crackle_class in CLASSES:
-            row[segment.wheeze_crackle_class] += 1
+        if segment.predicted_class in CLASSES:
+            row[segment.predicted_class] += 1
 
     return [
         {
             **row,
             "bucket_start": row["bucket_start"].isoformat(),
-            "abnormal_ratio": (
-                round((row["wheeze"] + row["crackle"] + row["both"]) / row["total"], 4) if row["total"] else None
-            ),
+            "abnormal_ratio": round(row["abnormal"] / row["total"], 4) if row["total"] else None,
         }
         for row in rows
     ]

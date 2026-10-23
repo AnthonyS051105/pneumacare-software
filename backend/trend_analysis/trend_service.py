@@ -26,10 +26,9 @@ def compute_and_save_trend(
     app,
     device_id: str,
     channel_id: int,
-    metric: str = "wheeze_frequency",
 ) -> TrendResult | None:
     """Query histori klasifikasi terbaru untuk device+channel ini, hitung rolling
-    frequency + trend, simpan TrendEvent bila ada hasil (>=2 titik rolling window).
+    frequency abnormal + trend, simpan TrendEvent bila ada hasil (>=2 titik rolling window).
 
     Return None (tanpa menyimpan) bila histori belum cukup — sama seperti
     detect_trend() sendiri, caller (websocket_server.py) tidak perlu menangani
@@ -51,12 +50,12 @@ def compute_and_save_trend(
     rows.reverse()  # query desc untuk ambil N-terbaru, tapi rolling_window butuh urut lama->baru
 
     events = [
-        ClassificationEvent(timestamp=row.segment_end, wheeze_crackle_class=row.wheeze_crackle_class)
+        ClassificationEvent(timestamp=row.segment_end, predicted_class=row.predicted_class)
         for row in rows
     ]
 
     points = compute_rolling_frequency(events, window_size)
-    trend_result = detect_trend(points, moving_average_window, significance_threshold, metric=metric)
+    trend_result = detect_trend(points, moving_average_window, significance_threshold)
 
     if trend_result is None:
         return None

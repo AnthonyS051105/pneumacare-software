@@ -97,6 +97,7 @@ def test_significant_trend_plus_persistence_escalates_to_level_3(app):
         assert result is not None
         assert result.level == 3
         assert result.triggers[0]["type"] == "trend_slope"
+        assert result.triggers[0]["parameter"] == "abnormal_frequency"
 
 
 def test_persistent_condition_does_not_create_duplicate_alerts(app):

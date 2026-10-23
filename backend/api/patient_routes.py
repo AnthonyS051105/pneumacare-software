@@ -159,12 +159,12 @@ def summary():
             },
             "today_range": today_range,
             "wear_compliance_today_hours": wear_hours_today,
-            # Hasil terbaru Model A (wheeze/crackle CNN) — FR-SW checkpoint 50%,
-            # ditampilkan apa adanya sebagai indikasi skrining, BUKAN diagnosis
-            # (lihat batasan framing di keputusan_terkunci.md).
+            # Hasil terbaru Model A (2 kelas: normal/abnormal) — ditampilkan apa adanya
+            # sebagai indikasi skrining, BUKAN diagnosis (lihat batasan framing di
+            # keputusan_terkunci.md).
             "latest_classification": {
-                "predicted_class": latest_classification.wheeze_crackle_class,
-                "confidence": latest_classification.wheeze_crackle_confidence,
+                "predicted_class": latest_classification.predicted_class,
+                "confidence": latest_classification.confidence,
                 "timestamp": latest_classification.segment_end.isoformat(),
             }
             if latest_classification is not None

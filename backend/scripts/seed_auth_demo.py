@@ -98,7 +98,7 @@ def seed_sample_data(patient: Patient) -> None:
     for hours_ago, level, triggers, ack in [
         (3, 2, [{"type": "vital_threshold", "parameter": "spo2", "value": 91, "threshold": "TODO_CLINICAL_VALUE", "severity": "breach"}], False),
         (5.5, 1, [{"type": "vital_threshold", "parameter": "rr", "value": 22, "threshold": "TODO_CLINICAL_VALUE", "severity": "near"}], True),
-        (30, 2, [{"type": "trend_slope", "parameter": "wheeze_frequency", "value": 0.14, "threshold": "TODO_NATHANAEL_CONFIRM"}], True),
+        (30, 2, [{"type": "trend_slope", "parameter": "abnormal_frequency", "value": 0.14, "threshold": "TODO_NATHANAEL_CONFIRM"}], True),
     ]:
         db.session.add(
             Alert(

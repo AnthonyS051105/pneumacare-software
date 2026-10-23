@@ -47,7 +47,7 @@ class Trigger:
     """
 
     type: str  # "vital_threshold" | "trend_slope"
-    parameter: str  # "hr" | "spo2" | "rr" | "wheeze_frequency" | dst.
+    parameter: str  # "hr" | "spo2" | "rr" | "abnormal_frequency" | dst.
     value: float
     threshold: float
     severity: str | None = None  # "breach" | "near" | None (trend_slope)
@@ -143,7 +143,7 @@ def evaluate_vitals(
 def make_trend_trigger(trend_result: TrendResult, significance_threshold: float) -> Trigger:
     return Trigger(
         type="trend_slope",
-        parameter="wheeze_frequency",
+        parameter="abnormal_frequency",
         value=trend_result.slope,
         threshold=significance_threshold,
         severity=None,

@@ -12,7 +12,6 @@ from backend.api.patient_routes import patient_bp
 from backend.api.routes import api_bp
 from backend.auth.auth_routes import auth_bp
 from backend.config import Config
-from backend.inference.model_startup import load_model_a_or_none
 from backend.ingestion.device_watchdog import start_device_watchdog
 from backend.ingestion.mqtt_subscriber import start_mqtt_subscriber
 from backend.ingestion.websocket_server import register_websocket_routes
@@ -22,7 +21,7 @@ from backend.models.user import User
 login_manager = LoginManager()
 
 
-def create_app(config_class: type = Config, start_mqtt: bool = True, load_inference_model: bool = True) -> Flask:
+def create_app(config_class: type = Config, start_mqtt: bool = True) -> Flask:
     app = Flask(__name__)
     app.config.from_object(config_class)
 
@@ -45,13 +44,6 @@ def create_app(config_class: type = Config, start_mqtt: bool = True, load_infere
 
     with app.app_context():
         db.create_all()
-
-    # SDD_SOFTWARE.md §9: model gagal load -> fallback otomatis ke mock_inference
-    # dengan log warning jelas, bukan crash startup. Disimpan di app.config supaya
-    # websocket_server.py bisa akses via current_app tanpa import langsung app.py.
-    app.config["_INFERENCE_MODEL"] = (
-        load_model_a_or_none(app.config.get("MODEL_A_CHECKPOINT_PATH", "")) if load_inference_model else None
-    )
 
     register_websocket_routes(app)
     app.register_blueprint(api_bp)
@@ -83,7 +75,7 @@ def _is_reloader_parent() -> bool:
 
 
 _serving = not _is_reloader_parent()
-app = create_app(start_mqtt=_serving, load_inference_model=_serving)
+app = create_app(start_mqtt=_serving)
 
 if __name__ == "__main__":
     # host=0.0.0.0: harus bisa diakses dari device lain di jaringan lokal (ESP32),

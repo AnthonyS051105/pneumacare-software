@@ -2,8 +2,8 @@
 
 Endpoint /ws/audio menerima chunk audio sesuai skema base64 JSON yang diputuskan
 di INTEGRATION_CONTRACT.md §2.3, menyusunnya jadi segmen 5 detik per channel
-(INTEGRATION_CONTRACT.md §4.1), lalu meneruskan tiap segmen genap ke Model A asli
-(bila ter-load saat startup, lihat inference/model_startup.py) atau mock_inference.
+(INTEGRATION_CONTRACT.md §4.1), lalu meneruskan tiap segmen genap ke ML service
+via HTTP atau mock_inference bila service tidak dikonfigurasi/tidak tersedia.
 """
 
 import base64
@@ -17,6 +17,7 @@ from flask_sock import Sock
 from backend.alerting.alert_engine import VitalReading
 from backend.alerting.alert_service import evaluate_and_save_alert
 from backend.inference.inference_service import run_inference
+from backend.inference.ml_service_client import MLServiceError
 from backend.inference.mock_inference import run_mock_inference
 from backend.ingestion.audio_segment_buffer import AudioSegmentBuffer, Segment
 from backend.ingestion.device_registry import upsert_device_seen
@@ -62,38 +63,54 @@ def _decode_pcm_base64(pcm_base64: str) -> list[int]:
 
 
 def _persist_segment_result(result: dict) -> None:
-    wheeze_crackle = result["wheeze_crackle"]
+    classification = result["classification"]
     reading = ReadingClassification(
         id=result["segment_id"],
         device_id=result["device_id"],
         channel_id=result["channel_id"],
         segment_start=datetime.fromtimestamp(result["segment_start_ms"] / 1000, tz=timezone.utc),
         segment_end=datetime.fromtimestamp(result["segment_end_ms"] / 1000, tz=timezone.utc),
-        wheeze_crackle_class=wheeze_crackle["predicted_class"],
-        wheeze_crackle_confidence=wheeze_crackle["confidence"],
-        wheeze_crackle_probabilities=wheeze_crackle["probabilities"],
-        wheeze_crackle_model_version=result["model_version"],
+        predicted_class=classification["predicted_class"],
+        confidence=classification["confidence"],
+        probabilities=classification["probabilities"],
+        model_version=result["model_version"],
     )
     db.session.add(reading)
     db.session.commit()
 
 
 def _handle_segment(segment: Segment) -> None:
-    model = current_app.config.get("_INFERENCE_MODEL")
+    ml_service_url = current_app.config.get("ML_SERVICE_URL", "")
+    scenario = current_app.config.get("MOCK_INFERENCE_SCENARIO", "random")
 
-    if model is not None:
-        result = run_inference(
-            model=model,
-            pcm_samples=segment.pcm_samples,
-            source_sample_rate=segment.sample_rate,
-            device_id=segment.device_id,
-            channel_id=segment.channel_id,
-            segment_start_ms=segment.segment_start_ms,
-            segment_end_ms=segment.segment_end_ms,
-            model_version=current_app.config.get("MODEL_A_VERSION", "unknown"),
-        )
+    if ml_service_url:
+        try:
+            result = run_inference(
+                pcm_samples=segment.pcm_samples,
+                source_sample_rate=segment.sample_rate,
+                device_id=segment.device_id,
+                channel_id=segment.channel_id,
+                segment_start_ms=segment.segment_start_ms,
+                segment_end_ms=segment.segment_end_ms,
+                model_version=current_app.config.get("ML_SERVICE_MODEL_VERSION", "unknown"),
+                ml_service_url=ml_service_url,
+                timeout_seconds=current_app.config.get("ML_SERVICE_TIMEOUT_SECONDS", 30),
+            )
+        except MLServiceError:
+            logger.exception(
+                "ML service gagal memproses segmen device=%s channel=%s — fallback ke mock_inference",
+                segment.device_id,
+                segment.channel_id,
+            )
+            result = run_mock_inference(
+                pcm_samples=segment.pcm_samples,
+                device_id=segment.device_id,
+                channel_id=segment.channel_id,
+                segment_start_ms=segment.segment_start_ms,
+                segment_end_ms=segment.segment_end_ms,
+                scenario=scenario,
+            )
     else:
-        scenario = current_app.config.get("MOCK_INFERENCE_SCENARIO", "random")
         result = run_mock_inference(
             pcm_samples=segment.pcm_samples,
             device_id=segment.device_id,
@@ -108,8 +125,8 @@ def _handle_segment(segment: Segment) -> None:
         "segment inferred device=%s channel=%s predicted_class=%s confidence=%.3f",
         segment.device_id,
         segment.channel_id,
-        result["wheeze_crackle"]["predicted_class"],
-        result["wheeze_crackle"]["confidence"],
+        result["classification"]["predicted_class"],
+        result["classification"]["confidence"],
     )
 
     app = current_app._get_current_object()

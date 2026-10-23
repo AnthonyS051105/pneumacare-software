@@ -1,7 +1,7 @@
 """Layer I/O untuk alert_engine.py — query threshold/histori dari DB, panggil
 evaluate_alert() (fungsi murni), simpan Alert bila ada hasil. Dipanggil dari
 ingestion layer (mqtt_subscriber.py untuk vitals, websocket_server.py untuk
-trend wheeze/crackle) — FR-SW-040..044, INTEGRATION_CONTRACT.md §5.
+trend frekuensi abnormal) — FR-SW-040..044, INTEGRATION_CONTRACT.md §5.
 """
 
 import logging

@@ -1,14 +1,12 @@
 """Logika murni penyusunan ulang chunk audio kecil menjadi segmen 5 detik
-(INTEGRATION_CONTRACT.md §2.2, §4.1 — durasi segmen model dikoreksi dari asumsi
-awal 10 detik menjadi 5 detik, terverifikasi dari kode preprocessing asli Nathanael).
+(INTEGRATION_CONTRACT.md §2.2, §4.1).
 
 Dipisahkan dari I/O (websocket) supaya mudah di-unit-test (FR-SW-002) — lihat pola
 yang sama di trend_analysis (SDD_SOFTWARE.md §6).
 
 ⚠️ Sample rate yang disimpan di sini adalah sample rate ASLI FIRMWARE (mis. 16000 Hz,
-dari header chunk — INTEGRATION_CONTRACT.md §2.3), BUKAN 22000 Hz target model.
-Resample ke 22000 Hz dilakukan SEKALI di `inference/preprocessing.py` atas segmen
-5 detik penuh, bukan per-chunk kecil — lihat docstring modul itu untuk alasannya.
+dari header chunk — INTEGRATION_CONTRACT.md §2.3). Sejak Fase 1, segmen utuh
+dikirim ke ML service sebagai WAV; service itu yang melakukan resample sendiri.
 """
 
 from dataclasses import dataclass, field

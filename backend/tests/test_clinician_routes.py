@@ -83,7 +83,7 @@ def test_vitals_latest_for_unowned_patient_returns_404(app, client):
     assert response.status_code == 404
 
 
-def test_severity_latest_returns_data(app, client):
+def test_classification_latest_returns_data(app, client):
     _seed_clinician_with_patient(app)
     with app.app_context():
         db.session.add(
@@ -93,19 +93,23 @@ def test_severity_latest_returns_data(app, client):
                 channel_id=1,
                 segment_start=datetime.now(timezone.utc),
                 segment_end=datetime.now(timezone.utc),
-                wheeze_crackle_class="wheeze",
-                wheeze_crackle_confidence=0.8,
-                wheeze_crackle_probabilities={"none": 0.1, "crackle": 0.05, "wheeze": 0.8, "both": 0.05},
-                wheeze_crackle_model_version="mock_v2",
+                predicted_class="abnormal",
+                confidence=0.8,
+                probabilities={"normal": 0.2, "abnormal": 0.8},
+                model_version="ast_model_v1.0",
             )
         )
         db.session.commit()
     _login_clinician(client)
 
-    response = client.get("/api/v1/patients/patient-1/severity/latest")
+    response = client.get("/api/v1/patients/patient-1/classification/latest")
 
     assert response.status_code == 200
-    assert response.get_json()["wheeze_crackle_class"] == "wheeze"
+    body = response.get_json()
+    assert body["predicted_class"] == "abnormal"
+    assert body["confidence"] == 0.8
+    assert body["probabilities"] == {"normal": 0.2, "abnormal": 0.8}
+    assert body["model_version"] == "ast_model_v1.0"
 
 
 def test_trend_returns_data(app, client):
@@ -405,11 +409,11 @@ def test_clinician_alerts_include_patient_name_and_date_filter(app, client):
     assert body[0]["patient_name"] == "Test Pasien"
 
 
-def test_wheeze_crackle_history_buckets(app, client):
+def test_classification_history_buckets(app, client):
     _seed_clinician_with_patient(app)
     with app.app_context():
         end = _now_naive() - timedelta(minutes=30)
-        for i, cls in enumerate(["wheeze", "none", "crackle", "none"]):
+        for i, cls in enumerate(["abnormal", "normal", "abnormal", "normal"]):
             db.session.add(
                 ReadingClassification(
                     id=f"seg-{i}",
@@ -417,22 +421,24 @@ def test_wheeze_crackle_history_buckets(app, client):
                     channel_id=1,
                     segment_start=end - timedelta(seconds=5),
                     segment_end=end + timedelta(seconds=i),
-                    wheeze_crackle_class=cls,
-                    wheeze_crackle_confidence=0.8,
-                    wheeze_crackle_model_version="test",
+                    predicted_class=cls,
+                    confidence=0.8,
+                    model_version="test",
                 )
             )
         db.session.commit()
     _login_clinician(client)
 
-    body = client.get("/api/v1/patients/patient-1/wheeze-crackle/history?range=24h").get_json()
+    body = client.get("/api/v1/patients/patient-1/classification/history?range=24h").get_json()
 
     assert body["bucket_seconds"] == 3600
     assert len(body["buckets"]) == 24
     assert sum(b["total"] for b in body["buckets"]) == 4
     filled = [b for b in body["buckets"] if b["total"]]
+    assert filled[-1]["normal"] == 2
+    assert filled[-1]["abnormal"] == 2
     assert filled[-1]["abnormal_ratio"] == 0.5
-    assert client.get("/api/v1/patients/patient-1/wheeze-crackle/history?range=1y").status_code == 400
+    assert client.get("/api/v1/patients/patient-1/classification/history?range=1y").status_code == 400
 
 
 def test_put_thresholds_validation(app, client):

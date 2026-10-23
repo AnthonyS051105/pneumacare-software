@@ -2,10 +2,10 @@ from backend.models import db
 
 
 class ReadingClassification(db.Model):
-    """🔄 Direstrukturisasi 2026-08-17 (dulu `ReadingSeverity`/`readings_severity`) —
-    mengikuti kontrak Model A/B di INTEGRATION_CONTRACT.md §4, SDD_SOFTWARE.md §3.
-    Kolom `wheeze_present`/`crackle_present` boolean terpisah versi sebelumnya
-    DIHAPUS — tidak sesuai output model aktual yang single-label 4-kelas.
+    """Hasil klasifikasi suara paru per segmen 5 detik (Model A, 2 kelas).
+
+    `predicted_class` berisi "normal" atau "abnormal" sesuai output ML service.
+    Model B (severity) tetap ditunda dan disimpan di kolom `severity_*`.
     """
 
     __tablename__ = "readings_classification"
@@ -16,11 +16,11 @@ class ReadingClassification(db.Model):
     segment_start = db.Column(db.DateTime, nullable=False)
     segment_end = db.Column(db.DateTime, nullable=False)
 
-    # Model A — wheeze/crackle, ✅ terverifikasi (INTEGRATION_CONTRACT.md §4.1)
-    wheeze_crackle_class = db.Column(db.String(16), nullable=False)  # enum: none, crackle, wheeze, both
-    wheeze_crackle_confidence = db.Column(db.Float, nullable=False)  # fraksi 0-1
-    wheeze_crackle_probabilities = db.Column(db.JSON, nullable=True)  # 4 nilai, fraksi 0-1
-    wheeze_crackle_model_version = db.Column(db.String(64), nullable=False)
+    # Model A — 2 kelas: normal/abnormal
+    predicted_class = db.Column(db.String(16), nullable=False)  # "normal" | "abnormal"
+    confidence = db.Column(db.Float, nullable=False)  # fraksi 0-1
+    probabilities = db.Column(db.JSON, nullable=True)  # {"normal": 0-1, "abnormal": 0-1}
+    model_version = db.Column(db.String(64), nullable=False)
 
     # Model B — severity PPOK, 🔓⏸️ DITUNDA (INTEGRATION_CONTRACT.md §4.2). Nullable
     # karena model belum tersedia — JANGAN isi nilai sampai Model B benar-benar

@@ -74,10 +74,10 @@ def test_summary_includes_latest_classification(app, client):
                 channel_id=1,
                 segment_start=now - timedelta(seconds=5),
                 segment_end=now,
-                wheeze_crackle_class="wheeze",
-                wheeze_crackle_confidence=0.87,
-                wheeze_crackle_probabilities=[0.05, 0.03, 0.87, 0.05],
-                wheeze_crackle_model_version="mobilenet_v3_small_epoch05_valloss0.9021",
+                predicted_class="abnormal",
+                confidence=0.87,
+                probabilities={"normal": 0.13, "abnormal": 0.87},
+                model_version="ast_model_v1.0",
             )
         )
         db.session.commit()
@@ -87,7 +87,7 @@ def test_summary_includes_latest_classification(app, client):
 
     assert response.status_code == 200
     body = response.get_json()
-    assert body["latest_classification"]["predicted_class"] == "wheeze"
+    assert body["latest_classification"]["predicted_class"] == "abnormal"
     assert body["latest_classification"]["confidence"] == 0.87
 
 
