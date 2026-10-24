@@ -9,6 +9,7 @@ via HTTP atau mock_inference bila service tidak dikonfigurasi/tidak tersedia.
 import base64
 import json
 import logging
+import time
 from datetime import datetime, timezone
 
 from flask import current_app, request
@@ -16,6 +17,7 @@ from flask_sock import Sock
 
 from backend.alerting.alert_engine import VitalReading
 from backend.alerting.alert_service import evaluate_and_save_alert
+from backend.analysis.cycle_segmenter import CycleDetectionResult, CycleSlice, detect_cycle_slices
 from backend.inference.inference_service import run_inference
 from backend.inference.ml_service_client import MLServiceError
 from backend.inference.mock_inference import run_mock_inference
@@ -23,6 +25,7 @@ from backend.ingestion.audio_segment_buffer import AudioSegmentBuffer, Segment
 from backend.ingestion.device_registry import upsert_device_seen
 from backend.models import db
 from backend.models.classification import ReadingClassification
+from backend.models.respiratory_cycle import RespiratoryCycle
 from backend.models.vital import ReadingVital
 from backend.trend_analysis.trend_service import compute_and_save_trend
 
@@ -79,19 +82,26 @@ def _persist_segment_result(result: dict) -> None:
     db.session.commit()
 
 
-def _handle_segment(segment: Segment) -> None:
+def _classify_input(
+    pcm_samples: list[int],
+    sample_rate: int,
+    device_id: str,
+    channel_id: int,
+    segment_start_ms: int,
+    segment_end_ms: int,
+) -> dict:
     ml_service_url = current_app.config.get("ML_SERVICE_URL", "")
     scenario = current_app.config.get("MOCK_INFERENCE_SCENARIO", "random")
 
     if ml_service_url:
         try:
-            result = run_inference(
-                pcm_samples=segment.pcm_samples,
-                source_sample_rate=segment.sample_rate,
-                device_id=segment.device_id,
-                channel_id=segment.channel_id,
-                segment_start_ms=segment.segment_start_ms,
-                segment_end_ms=segment.segment_end_ms,
+            return run_inference(
+                pcm_samples=pcm_samples,
+                source_sample_rate=sample_rate,
+                device_id=device_id,
+                channel_id=channel_id,
+                segment_start_ms=segment_start_ms,
+                segment_end_ms=segment_end_ms,
                 model_version=current_app.config.get("ML_SERVICE_MODEL_VERSION", "unknown"),
                 ml_service_url=ml_service_url,
                 timeout_seconds=current_app.config.get("ML_SERVICE_TIMEOUT_SECONDS", 30),
@@ -99,35 +109,108 @@ def _handle_segment(segment: Segment) -> None:
         except MLServiceError:
             logger.exception(
                 "ML service gagal memproses segmen device=%s channel=%s — fallback ke mock_inference",
-                segment.device_id,
-                segment.channel_id,
+                device_id,
+                channel_id,
             )
-            result = run_mock_inference(
-                pcm_samples=segment.pcm_samples,
-                device_id=segment.device_id,
-                channel_id=segment.channel_id,
-                segment_start_ms=segment.segment_start_ms,
-                segment_end_ms=segment.segment_end_ms,
-                scenario=scenario,
-            )
-    else:
-        result = run_mock_inference(
-            pcm_samples=segment.pcm_samples,
+
+    return run_mock_inference(
+        pcm_samples=pcm_samples,
+        device_id=device_id,
+        channel_id=channel_id,
+        segment_start_ms=segment_start_ms,
+        segment_end_ms=segment_end_ms,
+        scenario=scenario,
+    )
+
+
+def _persist_cycle_metadata(
+    result: dict,
+    segment: Segment,
+    detection: CycleDetectionResult,
+    cycle: CycleSlice | None,
+) -> None:
+    cycle_start_ms = None
+    cycle_end_ms = None
+    if cycle is not None:
+        cycle_start_ms = segment.segment_start_ms + round(cycle.start_s * 1000)
+        cycle_end_ms = segment.segment_start_ms + round(cycle.end_s * 1000)
+
+    db.session.add(
+        RespiratoryCycle(
+            classification_id=result["segment_id"],
             device_id=segment.device_id,
             channel_id=segment.channel_id,
-            segment_start_ms=segment.segment_start_ms,
-            segment_end_ms=segment.segment_end_ms,
-            scenario=scenario,
+            analysis_start=datetime.fromtimestamp(
+                segment.segment_start_ms / 1000, tz=timezone.utc
+            ),
+            analysis_end=datetime.fromtimestamp(
+                segment.segment_end_ms / 1000, tz=timezone.utc
+            ),
+            detection_status="detected" if cycle is not None else detection.status,
+            cycle_index=cycle.index if cycle is not None else None,
+            cycle_start_ms=cycle_start_ms,
+            cycle_end_ms=cycle_end_ms,
+            mean_dtw=detection.mean_dtw,
+            dtw_score=cycle.dtw_score if cycle is not None else None,
         )
+    )
+    db.session.commit()
 
-    _persist_segment_result(result)
+
+def _handle_segment(segment: Segment) -> None:
+    detection_started = time.perf_counter()
+    detection = detect_cycle_slices(segment.pcm_samples, segment.sample_rate)
+    detection_ms = (time.perf_counter() - detection_started) * 1000
     logger.info(
-        "segment inferred device=%s channel=%s predicted_class=%s confidence=%.3f",
+        "deteksi siklus device=%s channel=%s status=%s cycles=%d mean_dtw=%s durasi=%.1f ms",
         segment.device_id,
         segment.channel_id,
-        result["classification"]["predicted_class"],
-        result["classification"]["confidence"],
+        detection.status,
+        len(detection.cycles),
+        f"{detection.mean_dtw:.4f}" if detection.mean_dtw is not None else "-",
+        detection_ms,
     )
+
+    if detection.cycles:
+        inputs = [
+            (
+                cycle.pcm_samples,
+                segment.segment_start_ms + round(cycle.start_s * 1000),
+                segment.segment_start_ms + round(cycle.end_s * 1000),
+                cycle,
+            )
+            for cycle in detection.cycles
+        ]
+    else:
+        inputs = [
+            (
+                segment.pcm_samples,
+                segment.segment_start_ms,
+                segment.segment_end_ms,
+                None,
+            )
+        ]
+
+    for pcm_samples, start_ms, end_ms, cycle in inputs:
+        result = _classify_input(
+            pcm_samples=pcm_samples,
+            sample_rate=segment.sample_rate,
+            device_id=segment.device_id,
+            channel_id=segment.channel_id,
+            segment_start_ms=start_ms,
+            segment_end_ms=end_ms,
+        )
+        _persist_segment_result(result)
+        _persist_cycle_metadata(result, segment, detection, cycle)
+        logger.info(
+            "segment inferred device=%s channel=%s classification_id=%s cycle=%s predicted_class=%s confidence=%.3f",
+            segment.device_id,
+            segment.channel_id,
+            result["segment_id"],
+            cycle.index if cycle is not None else "fallback",
+            result["classification"]["predicted_class"],
+            result["classification"]["confidence"],
+        )
 
     app = current_app._get_current_object()
     trend_result = compute_and_save_trend(app, segment.device_id, segment.channel_id)

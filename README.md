@@ -1,5 +1,10 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Dokumentasi aliran data
+
+Lihat [README_DATA_FLOW.md](./README_DATA_FLOW.md) untuk diagram dan penjelasan
+aliran data dari perangkat ESP32, backend, ML service, hingga website.
+
 ## Getting Started
 
 First, run the development server:
