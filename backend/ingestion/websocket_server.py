@@ -9,6 +9,9 @@ di INTEGRATION_CONTRACT.md §2.3, menyusunnya jadi segmen 5 detik per channel
 import base64
 import json
 import logging
+from threading import Event, Lock
+from time import monotonic, time
+import numpy as np
 from datetime import datetime, timezone
 
 from flask import current_app, request
@@ -19,6 +22,7 @@ from backend.alerting.alert_service import evaluate_and_save_alert
 from backend.inference.inference_service import run_inference
 from backend.inference.mock_inference import run_mock_inference
 from backend.ingestion.audio_segment_buffer import AudioSegmentBuffer, Segment
+from backend.ingestion.audio_worker import AudioWorker
 from backend.ingestion.device_registry import upsert_device_seen
 from backend.models import db
 from backend.models.classification import ReadingClassification
@@ -31,7 +35,7 @@ sock = Sock()
 
 # Validasi bearer token statis sesuai INTEGRATION_CONTRACT.md §6 — baseline demo,
 # BUKAN autentikasi kelas produksi (tidak ada rotasi/expiry per device).
-_segment_buffer = AudioSegmentBuffer()
+
 
 
 def _is_authorized(headers) -> bool:
@@ -48,17 +52,11 @@ def _is_authorized(headers) -> bool:
     return auth_header[len("Bearer ") :] == expected_token
 
 
-def _decode_pcm_base64(pcm_base64: str) -> list[int]:
-    raw_bytes = base64.b64decode(pcm_base64)
-    # int16 little-endian, sesuai INTEGRATION_CONTRACT.md §2.3
-    sample_count = len(raw_bytes) // 2
-    samples = [0] * sample_count
-    for i in range(sample_count):
-        value = raw_bytes[2 * i] | (raw_bytes[2 * i + 1] << 8)
-        if value >= 32768:
-            value -= 65536
-        samples[i] = value
-    return samples
+def _decode_pcm_base64(pcm_base64: str):
+    raw_bytes = base64.b64decode(pcm_base64, validate=True)
+    if len(raw_bytes) % 2:
+        raise ValueError("odd PCM byte length")
+    return np.frombuffer(raw_bytes, dtype="<i2")
 
 
 def _persist_segment_result(result: dict) -> None:
@@ -78,7 +76,9 @@ def _persist_segment_result(result: dict) -> None:
     db.session.commit()
 
 
-def _handle_segment(segment: Segment) -> None:
+def _handle_segment(segment: Segment, job=None) -> None:
+    timings = {}
+    started = monotonic()
     model = current_app.config.get("_INFERENCE_MODEL")
 
     if model is not None:
@@ -103,7 +103,17 @@ def _handle_segment(segment: Segment) -> None:
             scenario=scenario,
         )
 
+    timings["model_total_ms"] = (monotonic() - started) * 1000
+    if job is not None:
+        job.check_cancelled()
+    started = monotonic()
+    upsert_device_seen(segment.device_id)
+    timings["registry_ms"] = (monotonic() - started) * 1000
+    started = monotonic()
+    if job is not None:
+        job.check_cancelled()
     _persist_segment_result(result)
+    timings["persist_ms"] = (monotonic() - started) * 1000
     logger.info(
         "segment inferred device=%s channel=%s predicted_class=%s confidence=%.3f",
         segment.device_id,
@@ -113,7 +123,12 @@ def _handle_segment(segment: Segment) -> None:
     )
 
     app = current_app._get_current_object()
+    started = monotonic()
+    if job is not None:
+        job.check_cancelled()
     trend_result = compute_and_save_trend(app, segment.device_id, segment.channel_id)
+    timings["trend_ms"] = (monotonic() - started) * 1000
+    started = monotonic()
 
     latest_vital = (
         db.session.query(ReadingVital)
@@ -126,88 +141,179 @@ def _handle_segment(segment: Segment) -> None:
         spo2=latest_vital.spo2 if latest_vital is not None else None,
         rr=latest_vital.rr if latest_vital is not None else None,
     )
+    if job is not None:
+        job.check_cancelled()
     evaluate_and_save_alert(app, device_id=segment.device_id, vitals=vitals, trend_result=trend_result)
+
+    timings["alert_ms"] = (monotonic() - started) * 1000
+    logger.info("audio_stages device=%s channel=%s durations=%s", segment.device_id,
+                segment.channel_id, timings)
+
+
+class AudioReceiver:
+    """App-local connection ownership; each connection owns all four partial buffers.
+
+    Claim only on a valid first frame. A replaced connection can never reclaim a
+    device and its finally block can only remove its own ownership.
+    """
+    def __init__(self, app, worker):
+        self.app, self.worker = app, worker
+        self.lock = Lock()
+        self.owners = {}
+
+    def connection(self):
+        return AudioConnection(self)
+
+
+class AudioConnection:
+    def __init__(self, receiver):
+        self.receiver = receiver
+        self.buffer = AudioSegmentBuffer(receiver.app.config["AUDIO_SEGMENT_DURATION_MS"])
+        self.device_id = None
+        self.stream_id = None
+        self.cancelled = Event()
+        self.closed = False
+        self.chunks = 0
+        self.decode_ms = self.assemble_ms = self.receive_max_ms = 0.0
+        self.gaps = 0
+        self.invalid = 0
+        self.timestamp_fallbacks = 0
+
+    def _reset(self, reason):
+        self.cancelled.set()
+        self.cancelled = Event()
+        discarded = self.buffer.reset_device(self.device_id)
+        logger.info("audio_partial_cancel reason=%s device=%s discarded_samples=%d",
+                    reason, self.device_id, discarded)
+
+    def receive(self, raw_message):
+        started = monotonic()
+        try:
+            if not isinstance(raw_message, str) or len(raw_message) > 260000:
+                raise ValueError("message size/type")
+            h = json.loads(raw_message)
+            if not isinstance(h, dict):
+                raise ValueError("JSON object required")
+            device = h.get("device_id")
+            if not isinstance(device, str) or not 1 <= len(device) <= 64:
+                raise ValueError("device id")
+            for key in ("channel_id", "seq_no", "timestamp_ms", "chunk_duration_ms", "sample_rate"):
+                if type(h.get(key)) is not int:
+                    raise ValueError("integer fields")
+            if not 1 <= h["channel_id"] <= 4 or h["seq_no"] < 0 or not 0 <= h["timestamp_ms"] < 253402300799000:
+                raise ValueError("channel/sequence/timestamp")
+            if h["sample_rate"] not in (4000, 8000, 16000, 22000, 44100, 48000):
+                raise ValueError("sample rate")
+            if h.get("bit_depth", 16) != 16 or not 0 < h["chunk_duration_ms"] <= 2000:
+                raise ValueError("format/duration")
+            stream = h.get("stream_id")
+            sample_start = h.get("sample_start")
+            if "stream_id" in h or "sample_start" in h:
+                if (not isinstance(stream, str) or not 1 <= len(stream) <= 64
+                        or type(sample_start) is not int or not 0 <= sample_start < 2**64):
+                    raise ValueError("continuity metadata pair")
+            if not isinstance(h.get("pcm_base64"), str):
+                raise ValueError("PCM base64 type")
+            pcm = _decode_pcm_base64(h["pcm_base64"])
+            if len(pcm) * 1000 != h["sample_rate"] * h["chunk_duration_ms"]:
+                raise ValueError("PCM count/duration mismatch")
+        except (ValueError, TypeError):
+            self.invalid += 1
+            # Payload and credentials must never reach logs.
+            logger.warning("audio_invalid_frame count=%d", self.invalid)
+            if self.device_id is not None:
+                self._reset("invalid_frame")
+            return False
+        if h["timestamp_ms"] < 1700000000000:
+            # This is an observation-time estimate, not acquisition latency.
+            h["timestamp_ms"] = int(time() * 1000) - h["chunk_duration_ms"]
+            self.timestamp_fallbacks += 1
+            if self.timestamp_fallbacks == 1:
+                logger.warning("audio_timestamp source=server_receive_estimate reason=device_pre_ntp")
+        decoded = monotonic()
+        r = self.receiver
+        with r.lock:
+            if self.closed or self.cancelled.is_set():
+                return False
+            if self.device_id is None:
+                old = r.owners.get(device)
+                if old is None and len(r.owners) >= r.app.config.get("AUDIO_MAX_DEVICES", 8):
+                    logger.warning("audio_device_limit")
+                    return False
+                if old is not None:
+                    old.close_locked("replaced")
+                self.device_id, self.stream_id = device, stream
+                r.owners[device] = self
+                logger.info("audio_session_open device=%s continuity=%s", device,
+                            "sample_index" if stream else "legacy_timestamp_only")
+            elif device != self.device_id:
+                self._reset("device_change_rejected")
+                return False
+            elif stream != self.stream_id:
+                self._reset("stream_change")
+                self.stream_id = stream
+            segment, gap = self.buffer.add_chunk(
+                device_id=device, channel_id=h["channel_id"], timestamp_ms=h["timestamp_ms"],
+                seq_no=h["seq_no"], chunk_duration_ms=h["chunk_duration_ms"], pcm_samples=pcm,
+                sample_rate=h["sample_rate"], sample_start=sample_start, stream_id=stream)
+            if gap is not None:
+                self.gaps += 1
+                logger.warning("audio_gap device=%s channel=%d reason=%s expected_seq=%d received_seq=%d "
+                               "lost_samples=%s discarded_samples=%d", device, h["channel_id"],
+                               gap.reason, gap.expected_seq_no, gap.received_seq_no,
+                               gap.lost_samples, gap.discarded_samples)
+            if segment is not None:
+                accepted = r.worker.submit(segment, self.cancelled)
+                logger.info("audio_segment_ready device=%s channel=%d accepted=%s", device,
+                            h["channel_id"], accepted)
+        ended = monotonic()
+        self.chunks += 1
+        self.decode_ms += (decoded - started) * 1000
+        self.assemble_ms += (ended - decoded) * 1000
+        self.receive_max_ms = max(self.receive_max_ms, (ended - started) * 1000)
+        if self.chunks % 80 == 0:
+            logger.info("audio_receive device=%s chunks=%d gaps=%d invalid=%d decode_mean_ms=%.3f "
+                        "assemble_mean_ms=%.3f receive_max_ms=%.3f", self.device_id,
+                        self.chunks, self.gaps, self.invalid, self.decode_ms / self.chunks,
+                        self.assemble_ms / self.chunks, self.receive_max_ms)
+        return True
+
+    def close_locked(self, reason):
+        self.closed = True
+        self._reset(reason)
+        self.cancelled.set()
+        if self.receiver.owners.get(self.device_id) is self:
+            self.receiver.owners.pop(self.device_id)
+
+    def close(self):
+        with self.receiver.lock:
+            self.close_locked("disconnect")
 
 
 def register_websocket_routes(app) -> None:
     sock.init_app(app)
+    if "audio_worker" not in app.extensions:
+        worker = AudioWorker(app, lambda job: _handle_segment(job.segment, job),
+                             capacity=app.config["AUDIO_QUEUE_CAPACITY"],
+                             max_wait_seconds=app.config["AUDIO_QUEUE_MAX_WAIT_SECONDS"])
+        app.extensions["audio_worker"] = worker
+        app.extensions["audio_receiver"] = AudioReceiver(app, worker)
 
     @sock.route("/ws/audio")
     def ws_audio(ws):
         if not _is_authorized(request.headers):
             logger.warning("koneksi /ws/audio ditolak: token Authorization tidak valid")
-            ws.close(reason=1008, message=b"unauthorized")
+            ws.close(reason=1008, message="unauthorized")
             return
-
-        device_id_for_reset: tuple[str, int] | None = None
+        connection = app.extensions["audio_receiver"].connection()
         try:
             while True:
                 raw_message = ws.receive()
                 if raw_message is None:
                     break
-
-                try:
-                    header = json.loads(raw_message)
-                except json.JSONDecodeError:
-                    logger.warning("pesan /ws/audio bukan JSON valid, diabaikan")
-                    continue
-
-                device_id = header.get("device_id")
-                channel_id = header.get("channel_id")
-                seq_no = header.get("seq_no")
-                timestamp_ms = header.get("timestamp_ms")
-                chunk_duration_ms = header.get("chunk_duration_ms")
-                pcm_base64 = header.get("pcm_base64")
-                sample_rate = header.get("sample_rate")
-
-                if None in (
-                    device_id,
-                    channel_id,
-                    seq_no,
-                    timestamp_ms,
-                    chunk_duration_ms,
-                    pcm_base64,
-                    sample_rate,
-                ):
-                    logger.warning("pesan /ws/audio kurang field wajib, diabaikan: %s", header)
-                    continue
-
-                bit_depth = header.get("bit_depth")
-                if bit_depth is not None and bit_depth != 16:
-                    logger.warning(
-                        "bit_depth tidak didukung: %s, hanya 16-bit yang didukung saat ini",
-                        bit_depth,
-                    )
-                    continue
-
-                device_id_for_reset = (device_id, channel_id)
-                pcm_samples = _decode_pcm_base64(pcm_base64)
-
-                with current_app.app_context():
-                    upsert_device_seen(device_id)
-
-                    segment, gap_event = _segment_buffer.add_chunk(
-                        device_id=device_id,
-                        channel_id=channel_id,
-                        timestamp_ms=timestamp_ms,
-                        seq_no=seq_no,
-                        chunk_duration_ms=chunk_duration_ms,
-                        pcm_samples=pcm_samples,
-                        sample_rate=sample_rate,
-                    )
-
-                    if gap_event is not None:
-                        logger.warning(
-                            "gap terdeteksi device=%s channel=%s expected_seq=%s received_seq=%s",
-                            gap_event.device_id,
-                            gap_event.channel_id,
-                            gap_event.expected_seq_no,
-                            gap_event.received_seq_no,
-                        )
-
-                    if segment is not None:
-                        _handle_segment(segment)
+                connection.receive(raw_message)
+                if connection.closed:
+                    ws.close(reason=1008, message="replaced session")
+                    break
         finally:
-            # §2.4: state segmen boleh direset saat koneksi berakhir/reconnect.
-            if device_id_for_reset is not None:
-                _segment_buffer.reset_channel(*device_id_for_reset)
+            connection.close()

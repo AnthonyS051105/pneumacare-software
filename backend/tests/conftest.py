@@ -19,6 +19,7 @@ class TestConfig(Config):
 def app():
     app = create_app(TestConfig, start_mqtt=False)
     yield app
+    app.extensions["audio_worker"].stop()
     with app.app_context():
         db.drop_all()
 

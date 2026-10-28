@@ -1,0 +1,383 @@
+--- a/src/buffer_manager.cpp
++++ b/src/buffer_manager.cpp
+@@ -13,6 +13,7 @@
+   size_t tail;  // index sample tertua (baca berikutnya)
+   size_t count; // jumlah sample valid saat ini
+   uint32_t drop_count;
++  uint64_t samples_written; // timeline per channel; tidak direset saat clear
+   platform_lock_t lock;
+ };
+ 
+@@ -46,6 +47,7 @@
+     buf.tail = 0;
+     buf.count = 0;
+     buf.drop_count = 0;
++    buf.samples_written = 0;
+     buf.lock = PLATFORM_LOCK_INITIALIZER;
+   }
+ 
+@@ -73,6 +75,7 @@
+ 
+   platform_lock_enter(&buf.lock);
+ 
++  buf.samples_written += n + skipped_input;
+   size_t free_space = g_capacity - buf.count;
+   if (n > free_space) {
+     // Drop sample TERLAMA (SDD §4) untuk memberi ruang blok baru.
+@@ -106,13 +109,15 @@
+   return count;
+ }
+ 
+-size_t buffer_manager_read_chunk(uint8_t channel_index, int16_t *out_buf, size_t max_samples) {
++size_t buffer_manager_read_chunk(uint8_t channel_index, int16_t *out_buf, size_t max_samples,
++                                 uint64_t *sample_start) {
+   if (channel_index >= g_num_channels) return 0;
+ 
+   AudioRingBuffer &buf = g_buffers[channel_index];
+ 
+   platform_lock_enter(&buf.lock);
+ 
++  if (sample_start != NULL) *sample_start = buf.samples_written - buf.count;
+   size_t to_read = (buf.count < max_samples) ? buf.count : max_samples;
+   size_t first = g_capacity - buf.tail;
+   if (first > to_read) first = to_read;
+@@ -148,3 +153,12 @@
+   platform_lock_exit(&buf.lock);
+   return drops;
+ }
++
++void buffer_manager_skip_samples(uint8_t channel_index, size_t n) {
++  if (channel_index >= g_num_channels) return;
++  AudioRingBuffer &buf = g_buffers[channel_index];
++  platform_lock_enter(&buf.lock);
++  buf.samples_written += n;
++  buf.head = buf.tail = buf.count = 0;
++  platform_lock_exit(&buf.lock);
++}
+--- a/src/buffer_manager.h
++++ b/src/buffer_manager.h
+@@ -31,7 +31,15 @@
+ 
+ // Menyalin & meng-consume hingga max_samples sample tertua ke out_buf.
+ // Mengembalikan jumlah sample yang benar-benar disalin.
+-size_t buffer_manager_read_chunk(uint8_t channel_index, int16_t *out_buf, size_t max_samples);
++// sample_start (opsional) diambil DALAM lock yang sama dengan PCM: indeks
++// sample pertama sejak boot, termasuk sample terbuang/disupresi. Jangan baca
++// drop_count terpisah sebagai metadata chunk (race dengan producer).
++size_t buffer_manager_read_chunk(uint8_t channel_index, int16_t *out_buf, size_t max_samples,
++                                 uint64_t *sample_start = NULL);
++
++// Tandai frame akuisisi yang sengaja disupresi (mic faulty); batalkan isi lama
++// supaya audio sebelum/sesudah celah tidak disambung sebagai kontinu.
++void buffer_manager_skip_samples(uint8_t channel_index, size_t n);
+ 
+ // Mengosongkan isi channel tsb (mis. saat koneksi belum siap streaming).
+ void buffer_manager_clear(uint8_t channel_index);
+--- a/src/audio_frame.cpp
++++ b/src/audio_frame.cpp
+@@ -3,7 +3,7 @@
+ #include <string.h>
+ 
+ // Ruang untuk semua field JSON selain isi base64 (nama field, device_id, angka).
+-static const size_t kJsonOverheadBytes = 256;
++static const size_t kJsonOverheadBytes = 384;
+ 
+ static const char kBase64Alphabet[] =
+     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+@@ -92,13 +92,19 @@
+   put_u64(w, header.channel_id);
+   put_str(w, ",\"sample_rate\":");
+   put_u64(w, header.sample_rate);
+-  // bit_depth informasional (tidak divalidasi backend), PCM selalu int16 LE.
++  // PCM selalu int16 LE; backend menolak bit_depth selain 16.
+   put_str(w, ",\"bit_depth\":16,\"timestamp_ms\":");
+   put_u64(w, header.timestamp_ms);
+   put_str(w, ",\"seq_no\":");
+   put_u64(w, header.seq_no);
+   put_str(w, ",\"chunk_duration_ms\":");
+   put_u64(w, header.chunk_duration_ms);
++  if (header.stream_id != NULL) {
++    put_str(w, ",\"stream_id\":\"");
++    put_str(w, header.stream_id); // generated hex16, no JSON escaping required
++    put_str(w, "\",\"sample_start\":");
++    put_u64(w, header.sample_start);
++  }
+   put_str(w, ",\"pcm_base64\":\"");
+   put_pcm_base64(w, pcm, n_samples);
+   put_str(w, "\"}");
+--- a/src/audio_frame.h
++++ b/src/audio_frame.h
+@@ -19,6 +19,8 @@
+   uint64_t timestamp_ms;
+   uint32_t seq_no;
+   uint32_t chunk_duration_ms;
++  const char *stream_id; // boot identifier; NULL for legacy diagnostic senders
++  uint64_t sample_start;
+ };
+ 
+ // Ukuran base64 (tanpa terminator) untuk n byte input.
+--- a/src/audio_pipeline.cpp
++++ b/src/audio_pipeline.cpp
+@@ -64,6 +64,8 @@
+ 
+     if (!(AUDIO_DEAD_CHANNEL_SUPPRESS && health.faulty)) {
+       buffer_manager_write_block(ch, g_pcm, frames);
++    } else {
++      buffer_manager_skip_samples(ch, frames);
+     }
+   }
+ 
+--- a/src/ws_client.cpp
++++ b/src/ws_client.cpp
+@@ -2,6 +2,7 @@
+ 
+ #include <Arduino.h>
+ #include <WebSocketsClient.h>
++#include <esp_system.h>
+ #include <config.h>
+ #include <secrets.h>
+ 
+@@ -23,6 +24,7 @@
+ static char g_auth_header[160];
+ 
+ static uint32_t g_seq_no[NUM_AUDIO_CHANNELS];
++static char g_stream_id[17]; // random boot identifier, unchanged by reconnect
+ static int16_t g_pcm_chunk[CHUNK_SAMPLE_COUNT];
+ // [WEBSOCKETS_MAX_HEADER_SIZE byte cadangan untuk header frame][JSON]. Library
+ // menulis header di ruang cadangan -> kirim tanpa salinan tambahan 11 KB.
+@@ -41,6 +43,9 @@
+ static void on_ws_event(WStype_t type, uint8_t *payload, size_t length) {
+   switch (type) {
+     case WStype_CONNECTED:
++      // First data on a new transport must start with fresh ring content.
++      // sample cursor survives clear, so losses remain visible on this boot.
++      for (uint8_t ch = 0; ch < NUM_AUDIO_CHANNELS; ch++) buffer_manager_clear(ch);
+       g_ws_connected = true;
+       g_stats.connects++;
+       reconnect_backoff_reset(&g_ws_backoff);
+@@ -66,6 +71,8 @@
+ 
+ bool ws_client_init(const char *device_id) {
+   g_device_id = device_id;
++  snprintf(g_stream_id, sizeof(g_stream_id), "%08lx%08lx",
++           (unsigned long)esp_random(), (unsigned long)esp_random());
+   reconnect_backoff_init(&g_ws_backoff, RECONNECT_BACKOFF_INITIAL_MS, RECONNECT_BACKOFF_MAX_MS);
+   for (uint8_t ch = 0; ch < NUM_AUDIO_CHANNELS; ch++) g_seq_no[ch] = 0;
+ 
+@@ -103,7 +110,9 @@
+     uint64_t now_ms = network_manager_get_epoch_ms();
+     uint64_t first_sample_ms = (now_ms > backlog_ms) ? now_ms - backlog_ms : 0;
+ 
+-    size_t got = buffer_manager_read_chunk(channel_index, g_pcm_chunk, CHUNK_SAMPLE_COUNT);
++    uint64_t sample_start = 0;
++    size_t got = buffer_manager_read_chunk(channel_index, g_pcm_chunk, CHUNK_SAMPLE_COUNT,
++                                           &sample_start);
+     if (got != CHUNK_SAMPLE_COUNT) return true;
+ 
+     AudioFrameHeader header = {
+@@ -113,21 +122,30 @@
+         first_sample_ms,
+         g_seq_no[channel_index],
+         CHUNK_DURATION_MS,
++        g_stream_id,
++        sample_start,
+     };
+     // seq_no naik walau kirim gagal: chunk itu memang hilang, dan gap seq_no
+     // adalah cara backend mendeteksinya (§2.3).
+     g_seq_no[channel_index]++;
+ 
+     char *json = (char *)(g_frame_buf + WEBSOCKETS_MAX_HEADER_SIZE);
++    uint32_t build_started_us = micros();
+     size_t len = audio_frame_build(json, g_frame_buf_size - WEBSOCKETS_MAX_HEADER_SIZE, header,
+                                    g_pcm_chunk, got);
++    uint32_t build_us = micros() - build_started_us;
++    if (build_us > g_stats.max_build_us) g_stats.max_build_us = build_us;
+     if (len == 0) {
+       g_stats.send_failures++;
+       Serial.println("[ws] BUG: buffer pesan terlalu kecil untuk 1 chunk.");
+       return true;
+     }
+ 
+-    if (!g_ws.sendTXT(g_frame_buf, len, true)) {
++    uint32_t send_started_us = micros();
++    bool sent = g_ws.sendTXT(g_frame_buf, len, true);
++    uint32_t send_us = micros() - send_started_us;
++    if (send_us > g_stats.max_send_us) g_stats.max_send_us = send_us;
++    if (!sent) {
+       g_stats.send_failures++;
+       return false; // koneksi kemungkinan putus — berhenti untuk tick ini
+     }
+--- a/src/ws_client.h
++++ b/src/ws_client.h
+@@ -6,8 +6,8 @@
+ // Websocket client audio — FR-HW-021, INTEGRATION_CONTRACT.md §2.
+ //
+ // Format pesan: JSON + "pcm_base64" (✅ FINAL §2.3, bukan binary frame), disusun
+-// oleh audio_frame.cpp. PCM selalu int16 little-endian (backend tidak
+-// memvalidasi bit_depth). Mengirim chunk dari SEMUA channel yang punya data
++// oleh audio_frame.cpp. PCM selalu int16 little-endian (backend memvalidasi
++// bit_depth). Mengirim chunk dari SEMUA channel yang punya data
+ // di buffer_manager (loop NUM_AUDIO_CHANNELS); channel yang mic-nya terdeteksi
+ // mati tidak punya data sehingga otomatis tidak terkirim.
+ //
+@@ -18,6 +18,8 @@
+   uint32_t chunks_sent;
+   uint32_t send_failures;
+   uint32_t connects;
++  uint32_t max_build_us;
++  uint32_t max_send_us;
+ };
+ 
+ // device_id disuntikkan supaya program test fase 3 bisa memakai DIAG_DEVICE_ID
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -155,6 +155,8 @@
+                 g_audio_ok, (unsigned long)audio_acquisition_get_dma_overflows(),
+                 (unsigned long)audio_acquisition_get_read_errors(), (unsigned long)ws.chunks_sent,
+                 (unsigned long)ws.send_failures);
++  Serial.printf("[status] ws build_max_us=%lu send_max_us=%lu (since boot)\n",
++                (unsigned long)ws.max_build_us, (unsigned long)ws.max_send_us);
+   for (uint8_t ch = 0; ch < NUM_AUDIO_CHANNELS; ch++) {
+     AudioChannelStats s;
+     audio_pipeline_get_stats(ch, &s);
+--- a/test/test_buffer_manager/test_main.cpp
++++ b/test/test_buffer_manager/test_main.cpp
+@@ -118,8 +118,40 @@
+   TEST_ASSERT_EQUAL_UINT32(0, buffer_manager_read_chunk(4, out, 2));
+ }
+ 
++void test_sample_cursor_exposes_loss_and_clear() {
++  int16_t in[20] = {0}, out[8];
++  uint64_t start = UINT64_MAX;
++  buffer_manager_write_block(0, in, 6);
++  TEST_ASSERT_EQUAL_UINT32(4, buffer_manager_read_chunk(0, out, 4, &start));
++  TEST_ASSERT_TRUE(start == 0);
++  buffer_manager_write_block(0, in, 6); // remaining indices 4..11
++  buffer_manager_write_block(0, in, 3); // drop indices 4..6
++  buffer_manager_read_chunk(0, out, 4, &start);
++  TEST_ASSERT_TRUE(start == 7);
++  buffer_manager_clear(0); // discard indices 11..14, but cursor must not restart
++  buffer_manager_write_block(0, in, 20); // indices 15..34, keep 27..34
++  buffer_manager_read_chunk(0, out, 8, &start);
++  TEST_ASSERT_TRUE(start == 27);
++}
++
++void test_suppressed_frames_advance_cursor_and_isolate_channels() {
++  int16_t in[4] = {0}, out[4];
++  uint64_t start = UINT64_MAX;
++  buffer_manager_write_block(0, in, 4);
++  buffer_manager_skip_samples(0, 16000);
++  TEST_ASSERT_EQUAL_UINT32(0, buffer_manager_available(0));
++  buffer_manager_write_block(0, in, 4);
++  buffer_manager_read_chunk(0, out, 4, &start);
++  TEST_ASSERT_TRUE(start == 16004);
++  buffer_manager_write_block(1, in, 4);
++  buffer_manager_read_chunk(1, out, 4, &start);
++  TEST_ASSERT_TRUE(start == 0);
++}
++
+ int main() {
+   UNITY_BEGIN();
++  RUN_TEST(test_sample_cursor_exposes_loss_and_clear);
++  RUN_TEST(test_suppressed_frames_advance_cursor_and_isolate_channels);
+   RUN_TEST(test_init_rejects_invalid_args);
+   RUN_TEST(test_write_then_read_preserves_order);
+   RUN_TEST(test_wrap_around_keeps_order);
+--- a/test/test_message_format/test_main.cpp
++++ b/test/test_message_format/test_main.cpp
+@@ -193,8 +193,26 @@
+   TEST_ASSERT_FALSE(doc["battery_pct"].is<int>()); // Last Will tanpa baterai
+ }
+ 
++void test_audio_continuity_metadata_roundtrip_and_size() {
++  static int16_t pcm[CHUNK_SAMPLE_COUNT];
++  AudioFrameHeader h = make_header();
++  h.stream_id = "0123456789abcdef";
++  h.sample_start = UINT64_MAX;
++  h.timestamp_ms = UINT64_MAX;
++  h.seq_no = UINT32_MAX;
++  size_t cap = audio_frame_max_size(CHUNK_SAMPLE_COUNT);
++  char *out = new char[cap];
++  TEST_ASSERT_GREATER_THAN(0, audio_frame_build(out, cap, h, pcm, CHUNK_SAMPLE_COUNT));
++  JsonDocument doc;
++  TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(doc, out).code());
++  TEST_ASSERT_EQUAL_STRING(h.stream_id, doc["stream_id"].as<const char *>());
++  TEST_ASSERT_TRUE(doc["sample_start"].as<uint64_t>() == UINT64_MAX);
++  delete[] out;
++}
++
+ int main() {
+   UNITY_BEGIN();
++  RUN_TEST(test_audio_continuity_metadata_roundtrip_and_size);
+   RUN_TEST(test_audio_frame_has_all_required_fields);
+   RUN_TEST(test_audio_frame_pcm_roundtrip_matches_backend_decoder);
+   RUN_TEST(test_audio_frame_base64_padding_for_odd_byte_counts);
+--- a/docs/INTEGRATION_CONTRACT.md
++++ b/docs/INTEGRATION_CONTRACT.md
+@@ -59,18 +59,51 @@
+ - `channel_id`: 1–4, urutan disepakati: `1=posterior_upper_left, 2=posterior_upper_right, 3=posterior_lower_left, 4=posterior_lower_right`.
+ - `timestamp_ms`: Unix epoch ms. ⚠️ ESP32 tidak punya RTC presisi bawaan — perlu sinkronisasi via NTP saat boot (lihat SDD Hardware §Network Manager), atau backend memakai waktu terima sebagai fallback bila timestamp device tidak masuk akal (drift check).
+ - `seq_no`: counter incremental per channel, dipakai backend untuk mendeteksi paket hilang (gap detection), bukan untuk reorder (asumsi TCP/websocket menjaga urutan).
+-- `pcm_base64`: hasil decode `base64.b64decode` lalu diparsing manual sebagai **int16 little-endian** oleh backend (`_decode_pcm_base64`).
+-
+-⚠️ **PENTING — bug tersembunyi yang harus dicegah dari sisi firmware, bukan sekadar detail dokumentasi**: field `bit_depth` **TIDAK divalidasi maupun dibaca sama sekali** oleh backend — decoder-nya **hardcode asumsi int16**, dan `bit_depth` bahkan tidak masuk daftar field wajib (boleh tidak dikirim, tidak akan ditolak). Artinya: **field ini murni informasional, TIDAK berfungsi sebagai kontrak yang ditegakkan sistem.**
+-
+-**Konsekuensi wajib untuk firmware**: berapapun nilai yang firmware isi di `bit_depth`, **PCM yang dikirim di `pcm_base64` HARUS selalu berupa sample 16-bit little-endian yang sesungguhnya** — bukan raw 24-bit/32-bit dari I2S peripheral ESP32 tanpa dikonversi dulu. Kalau firmware mengirim data mentah 32-bit (umum terjadi karena INMP441 adalah mikrofon 24-bit yang sering dibaca ESP32 dalam slot 32-bit) tanpa dikonversi ke int16 di firmware terlebih dulu, backend akan **tetap "berhasil" decode tanpa error apapun, tapi menghasilkan audio yang rusak/berisik** — karena tidak ada validasi yang akan menangkap kesalahan ini. Ini HARUS dites dengan benar-benar mendengarkan/plot hasil decode di sisi backend, bukan diasumsikan otomatis benar hanya karena tidak ada error saat runtime.
+-
+-🧩 **Rekomendasi perbaikan (bukan blocker checkpoint 50%, tapi dicatat sebagai technical debt)**: backend sebaiknya menambahkan validasi eksplisit `assert bit_depth == 16` dan menolak/log-warning kalau tidak — supaya asumsi yang saat ini implisit menjadi tercek otomatis, bukan mengandalkan disiplin manual kedua tim.
+-
+-**Field wajib (pesan ditolak & di-skip kalau salah satu `None`)**: `device_id`, `channel_id`, `seq_no`, `timestamp_ms`, `chunk_duration_ms`, `pcm_base64`, `sample_rate`. **`bit_depth` TIDAK termasuk wajib** — boleh tidak dikirim sama sekali tanpa memengaruhi parsing (meski tetap disarankan selalu dikirim untuk kejelasan/debugging).
++- `pcm_base64`: base64 strict atas **int16 little-endian**; backend memvalidasi panjang PCM terhadap rate dan durasi.
++
++**Validasi backend (2026-10-28):** `bit_depth` tetap opsional untuk kompatibilitas,
++namun bila disertakan harus 16. Backend menolak base64 tidak valid, byte PCM ganjil,
++jumlah sample yang tidak cocok dengan durasi/rate, dan tipe/nilai header tidak valid.
++PCM selalu int16 little-endian, bukan slot I2S 24/32-bit mentah.
++
++**Audio header v2 — ekstensi kontinuitas opsional, 2026-10-28:** firmware produksi
++menambahkan pasangan field berikut tanpa mengubah field wajib lama:
++
++```json
++{ "stream_id": "0123456789abcdef", "sample_start": 1800000 }
++```
++
++- `stream_id`: string identitas boot (firmware: 16 karakter hex acak), tetap sama
++  sepanjang boot termasuk saat WebSocket reconnect; berubah saat reboot. Bukan token rahasia.
++- `sample_start`: integer unsigned 64-bit, indeks sample pertama PCM chunk pada
++  timeline per-channel sejak pipeline mulai. Counter naik untuk setiap frame yang
++  masuk pipeline, termasuk frame disupresi karena mic faulty, sample drop-oldest,
++  dan sample yang dibersihkan saat koneksi belum siap. Tidak direset oleh clear/reconnect.
++  Frame yang tidak pernah berhasil dibaca dari DMA belum dapat dikuantifikasi oleh counter ini.
++- Indeks diambil dalam lock yang sama dengan pembacaan PCM. Backend mengharapkan
++  indeks berikutnya = `sample_start` sebelumnya + jumlah sample PCM sebelumnya.
++  Selisih positif adalah jumlah sample timeline yang hilang (ring overflow, clear,
++  suppression, atau pesan gagal terkirim); `seq_no` saja tidak mengukur seluruhnya.
++- Kedua field harus hadir bersama. Firmware lama tetap diterima dengan deteksi
++  `seq_no` dan timestamp yang lebih terbatas, disertai log mode legacy. Kehilangan
++  ring buffer firmware lama tidak dapat dihitung secara andal di backend.
++- Backend membatalkan segmen parsial pada gap sequence/sample, pergantian stream,
++  atau format/rate berubah. Data sebelum/sesudah celah tidak digabung. Hanya segmen
++  lengkap 5 detik yang boleh masuk model; PCM yang sudah diserahkan tidak dimutasi.
++- `timestamp_ms` tetap perkiraan epoch capture awal chunk. Sebelum NTP sinkron
++  firmware memakai fallback uptime; lompatan SNTP bukan ukuran kehilangan sample.
++  Indeks sample adalah acuan kontinuitas v2. Durasi proses/antrean di backend
++  memakai monotonic clock, terpisah dari epoch perangkat.
++
++**Field wajib:** `device_id`, `channel_id`, `seq_no`, `timestamp_ms`,
++`chunk_duration_ms`, `pcm_base64`, `sample_rate`.
+ 
+ ### 2.4 Reconnection
+-Firmware **wajib** retry koneksi websocket dengan exponential backoff (mis. 1s, 2s, 4s, ... maks 30s) bila terputus — lihat FR-HW-09 di PRD Hardware. Backend tidak perlu melakukan apapun khusus di sisi ini selain menerima koneksi baru dan melanjutkan (state segmen di backend boleh di-reset per reconnect).
++Firmware **wajib** retry koneksi websocket dengan exponential backoff (mis. 1s, 2s, 4s, ... maks 30s) bila terputus — lihat FR-HW-09 di PRD Hardware. Firmware membersihkan semua ring channel pada koneksi baru. Backend mereset
++segmen parsial semua channel perangkat ketika koneksi baru mengambil alih. State
++antarkoneksi tidak boleh dicampur; penutupan koneksi lama tidak boleh menghapus
++state koneksi penggantinya. Pekerjaan antrean dari sesi yang telah diganti
++dibatalkan secara eksplisit; satu worker memproses pekerjaan valid berurutan.
+ 
+ ---
+ 
+@@ -247,3 +280,4 @@
+ | 2026-08-12 (Fase 3, revisi) | **§5.1 diganti ke v2** — Tony memutuskan mengimplementasikan eskalasi berbasis *persistence* sekarang (bukan backlog): tren signifikan N kali berturut-turut (default 3) → level 3 otomatis meski berdiri sendiri. Desain lengkap di `SDD_SOFTWARE.md §7` (modul Alert Engine baru, memanfaatkan tabel `trend_events` yang sudah ada, tanpa perlu skema baru) | Tony |
+ | 2026-08-12 (Fase 3, v3) | **§5.1 diperluas ke v3** — Level 1 (informasi) diimplementasikan sekarang juga (sebelumnya ditunda). Ditambah field `severity` (`breach`/`near`) di trigger, margin near-threshold didefinisikan relatif terhadap ambang (10% untuk HR/RR, 2 poin persentase untuk SpO2) — ditandai jelas sebagai heuristik tuning, bukan nilai klinis. Detail: `SDD_SOFTWARE.md §7.5` | Tony |
+ | 2026-08-12 (§2.3 dikunci) | **Format frame audio dikunci final** — dicek langsung ke `websocket_server.py` yang sudah diimplementasikan: base64 JSON, BUKAN binary frame (opsi binary dihapus, tidak pernah diimplementasikan). Ditemukan gap: `bit_depth` tidak divalidasi backend (hardcode asumsi int16) — ditambahkan peringatan eksplisit bahwa firmware wajib selalu kirim PCM 16-bit little-endian meski field ini tidak ditegakkan sistem | Tony, verifikasi dari kode `websocket_server.py` |
++| 2026-10-28 | Audio header v2 additive: pasangan opsional `stream_id` + `sample_start`, indeks atomik per channel untuk deteksi ring loss/suppression/clear, reset sesi dan pembatalan segmen parsial, validasi PCM/bit-depth eksplisit. Field wajib, gain, jaringan, PCM/rate dan format base64 JSON tetap. | Codex, atas permintaan Tony |

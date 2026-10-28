@@ -1,0 +1,1042 @@
+diff --git a/backend/ingestion/websocket_server.py b/backend/ingestion/websocket_server.py
+--- a/backend/ingestion/websocket_server.py
++++ b/backend/ingestion/websocket_server.py
+@@ -10,6 +10,9 @@
+ import json
+ import logging
+ import time
++from threading import Event, Lock
++from time import monotonic
++import numpy as np
+ from datetime import datetime, timezone
+ 
+ from flask import current_app, request
+@@ -22,6 +25,7 @@
+ from backend.inference.ml_service_client import MLServiceError
+ from backend.inference.mock_inference import run_mock_inference
+ from backend.ingestion.audio_segment_buffer import AudioSegmentBuffer, Segment
++from backend.ingestion.audio_worker import AudioWorker
+ from backend.ingestion.device_registry import upsert_device_seen
+ from backend.models import db
+ from backend.models.classification import ReadingClassification
+@@ -35,7 +39,7 @@
+ 
+ # Validasi bearer token statis sesuai INTEGRATION_CONTRACT.md §6 — baseline demo,
+ # BUKAN autentikasi kelas produksi (tidak ada rotasi/expiry per device).
+-_segment_buffer = AudioSegmentBuffer()
++
+ 
+ 
+ def _is_authorized(headers) -> bool:
+@@ -52,17 +56,11 @@
+     return auth_header[len("Bearer ") :] == expected_token
+ 
+ 
+-def _decode_pcm_base64(pcm_base64: str) -> list[int]:
+-    raw_bytes = base64.b64decode(pcm_base64)
+-    # int16 little-endian, sesuai INTEGRATION_CONTRACT.md §2.3
+-    sample_count = len(raw_bytes) // 2
+-    samples = [0] * sample_count
+-    for i in range(sample_count):
+-        value = raw_bytes[2 * i] | (raw_bytes[2 * i + 1] << 8)
+-        if value >= 32768:
+-            value -= 65536
+-        samples[i] = value
+-    return samples
++def _decode_pcm_base64(pcm_base64: str):
++    raw_bytes = base64.b64decode(pcm_base64, validate=True)
++    if len(raw_bytes) % 2:
++        raise ValueError("odd PCM byte length")
++    return np.frombuffer(raw_bytes, dtype="<i2")
+ 
+ 
+ def _persist_segment_result(result: dict) -> None:
+@@ -157,7 +155,13 @@
+     db.session.commit()
+ 
+ 
+-def _handle_segment(segment: Segment) -> None:
++def _handle_segment(segment: Segment, job=None) -> None:
++    # Retain cycle detection/classification semantics from feat/ai-integration.
++    if job is not None:
++        job.check_cancelled()
++    registry_started = monotonic()
++    upsert_device_seen(segment.device_id)
++    logger.info("audio_stage stage=registry duration_ms=%.3f", (monotonic() - registry_started) * 1000)
+     detection_started = time.perf_counter()
+     detection = detect_cycle_slices(segment.pcm_samples, segment.sample_rate)
+     detection_ms = (time.perf_counter() - detection_started) * 1000
+@@ -192,6 +196,9 @@
+         ]
+ 
+     for pcm_samples, start_ms, end_ms, cycle in inputs:
++        if job is not None:
++            job.check_cancelled()
++        classify_started = monotonic()
+         result = _classify_input(
+             pcm_samples=pcm_samples,
+             sample_rate=segment.sample_rate,
+@@ -200,8 +207,17 @@
+             segment_start_ms=start_ms,
+             segment_end_ms=end_ms,
+         )
++        logger.info("audio_stage stage=classify_http duration_ms=%.3f",
++                    (monotonic() - classify_started) * 1000)
++        # HTTP/model calls cannot be interrupted safely; do not persist stale work
++        # when replacement/disconnect was observed while the model was running.
++        if job is not None:
++            job.check_cancelled()
++        persist_started = monotonic()
+         _persist_segment_result(result)
+         _persist_cycle_metadata(result, segment, detection, cycle)
++        logger.info("audio_stage stage=persist_cycle duration_ms=%.3f",
++                    (monotonic() - persist_started) * 1000)
+         logger.info(
+             "segment inferred device=%s channel=%s classification_id=%s cycle=%s predicted_class=%s confidence=%.3f",
+             segment.device_id,
+@@ -212,8 +228,12 @@
+             result["classification"]["confidence"],
+         )
+ 
++    if job is not None:
++        job.check_cancelled()
+     app = current_app._get_current_object()
++    trend_started = monotonic()
+     trend_result = compute_and_save_trend(app, segment.device_id, segment.channel_id)
++    logger.info("audio_stage stage=trend duration_ms=%.3f", (monotonic() - trend_started) * 1000)
+ 
+     latest_vital = (
+         db.session.query(ReadingVital)
+@@ -226,88 +246,170 @@
+         spo2=latest_vital.spo2 if latest_vital is not None else None,
+         rr=latest_vital.rr if latest_vital is not None else None,
+     )
++    if job is not None:
++        job.check_cancelled()
++    alert_started = monotonic()
+     evaluate_and_save_alert(app, device_id=segment.device_id, vitals=vitals, trend_result=trend_result)
++    logger.info("audio_stage stage=alert duration_ms=%.3f", (monotonic() - alert_started) * 1000)
++
++
++class AudioReceiver:
++    """App-local connection ownership; each connection owns all four partial buffers.
++
++    Claim only on a valid first frame. A replaced connection can never reclaim a
++    device and its finally block can only remove its own ownership.
++    """
++    def __init__(self, app, worker):
++        self.app, self.worker = app, worker
++        self.lock = Lock()
++        self.owners = {}
++
++    def connection(self):
++        return AudioConnection(self)
++
++
++class AudioConnection:
++    def __init__(self, receiver):
++        self.receiver = receiver
++        self.buffer = AudioSegmentBuffer(receiver.app.config["AUDIO_SEGMENT_DURATION_MS"])
++        self.device_id = None
++        self.stream_id = None
++        self.cancelled = Event()
++        self.closed = False
++        self.chunks = 0
++        self.decode_ms = self.assemble_ms = self.receive_max_ms = 0.0
++        self.gaps = 0
++        self.invalid = 0
++
++    def _reset(self, reason):
++        self.cancelled.set()
++        self.cancelled = Event()
++        discarded = self.buffer.reset_device(self.device_id)
++        logger.info("audio_partial_cancel reason=%s device=%s discarded_samples=%d",
++                    reason, self.device_id, discarded)
++
++    def receive(self, raw_message):
++        started = monotonic()
++        try:
++            if not isinstance(raw_message, str) or len(raw_message) > 260000:
++                raise ValueError("message size/type")
++            h = json.loads(raw_message)
++            if not isinstance(h, dict):
++                raise ValueError("JSON object required")
++            device = h.get("device_id")
++            if not isinstance(device, str) or not 1 <= len(device) <= 64:
++                raise ValueError("device id")
++            for key in ("channel_id", "seq_no", "timestamp_ms", "chunk_duration_ms", "sample_rate"):
++                if type(h.get(key)) is not int:
++                    raise ValueError("integer fields")
++            if not 1 <= h["channel_id"] <= 4 or h["seq_no"] < 0 or not 0 <= h["timestamp_ms"] < 253402300799000:
++                raise ValueError("channel/sequence/timestamp")
++            if h["sample_rate"] not in (4000, 8000, 16000, 22000, 44100, 48000):
++                raise ValueError("sample rate")
++            if h.get("bit_depth", 16) != 16 or not 0 < h["chunk_duration_ms"] <= 2000:
++                raise ValueError("format/duration")
++            stream = h.get("stream_id")
++            sample_start = h.get("sample_start")
++            if "stream_id" in h or "sample_start" in h:
++                if (not isinstance(stream, str) or not 1 <= len(stream) <= 64
++                        or type(sample_start) is not int or not 0 <= sample_start < 2**64):
++                    raise ValueError("continuity metadata pair")
++            if not isinstance(h.get("pcm_base64"), str):
++                raise ValueError("PCM base64 type")
++            pcm = _decode_pcm_base64(h["pcm_base64"])
++            if len(pcm) * 1000 != h["sample_rate"] * h["chunk_duration_ms"]:
++                raise ValueError("PCM count/duration mismatch")
++        except (ValueError, TypeError):
++            self.invalid += 1
++            # Payload and credentials must never reach logs.
++            logger.warning("audio_invalid_frame count=%d", self.invalid)
++            if self.device_id is not None:
++                self._reset("invalid_frame")
++            return False
++        decoded = monotonic()
++        r = self.receiver
++        with r.lock:
++            if self.closed or self.cancelled.is_set():
++                return False
++            if self.device_id is None:
++                old = r.owners.get(device)
++                if old is None and len(r.owners) >= r.app.config.get("AUDIO_MAX_DEVICES", 8):
++                    logger.warning("audio_device_limit")
++                    return False
++                if old is not None:
++                    old.close_locked("replaced")
++                self.device_id, self.stream_id = device, stream
++                r.owners[device] = self
++                logger.info("audio_session_open device=%s continuity=%s", device,
++                            "sample_index" if stream else "legacy_timestamp_only")
++            elif device != self.device_id:
++                self._reset("device_change_rejected")
++                return False
++            elif stream != self.stream_id:
++                self._reset("stream_change")
++                self.stream_id = stream
++            segment, gap = self.buffer.add_chunk(
++                device_id=device, channel_id=h["channel_id"], timestamp_ms=h["timestamp_ms"],
++                seq_no=h["seq_no"], chunk_duration_ms=h["chunk_duration_ms"], pcm_samples=pcm,
++                sample_rate=h["sample_rate"], sample_start=sample_start, stream_id=stream)
++            if gap is not None:
++                self.gaps += 1
++                logger.warning("audio_gap device=%s channel=%d reason=%s expected_seq=%d received_seq=%d "
++                               "lost_samples=%s discarded_samples=%d", device, h["channel_id"],
++                               gap.reason, gap.expected_seq_no, gap.received_seq_no,
++                               gap.lost_samples, gap.discarded_samples)
++            if segment is not None:
++                accepted = r.worker.submit(segment, self.cancelled)
++                logger.info("audio_segment_ready device=%s channel=%d accepted=%s", device,
++                            h["channel_id"], accepted)
++        ended = monotonic()
++        self.chunks += 1
++        self.decode_ms += (decoded - started) * 1000
++        self.assemble_ms += (ended - decoded) * 1000
++        self.receive_max_ms = max(self.receive_max_ms, (ended - started) * 1000)
++        if self.chunks % 80 == 0:
++            logger.info("audio_receive device=%s chunks=%d gaps=%d invalid=%d decode_mean_ms=%.3f "
++                        "assemble_mean_ms=%.3f receive_max_ms=%.3f", self.device_id,
++                        self.chunks, self.gaps, self.invalid, self.decode_ms / self.chunks,
++                        self.assemble_ms / self.chunks, self.receive_max_ms)
++        return True
++
++    def close_locked(self, reason):
++        self.closed = True
++        self._reset(reason)
++        self.cancelled.set()
++        if self.receiver.owners.get(self.device_id) is self:
++            self.receiver.owners.pop(self.device_id)
++
++    def close(self):
++        with self.receiver.lock:
++            self.close_locked("disconnect")
+ 
+ 
+ def register_websocket_routes(app) -> None:
+     sock.init_app(app)
++    if "audio_worker" not in app.extensions:
++        worker = AudioWorker(app, lambda job: _handle_segment(job.segment, job),
++                             capacity=app.config["AUDIO_QUEUE_CAPACITY"],
++                             max_wait_seconds=app.config["AUDIO_QUEUE_MAX_WAIT_SECONDS"])
++        app.extensions["audio_worker"] = worker
++        app.extensions["audio_receiver"] = AudioReceiver(app, worker)
+ 
+     @sock.route("/ws/audio")
+     def ws_audio(ws):
+         if not _is_authorized(request.headers):
+             logger.warning("koneksi /ws/audio ditolak: token Authorization tidak valid")
+-            ws.close(reason=1008, message=b"unauthorized")
++            ws.close(reason=1008, message="unauthorized")
+             return
+-
+-        device_id_for_reset: tuple[str, int] | None = None
++        connection = app.extensions["audio_receiver"].connection()
+         try:
+             while True:
+                 raw_message = ws.receive()
+                 if raw_message is None:
+                     break
+-
+-                try:
+-                    header = json.loads(raw_message)
+-                except json.JSONDecodeError:
+-                    logger.warning("pesan /ws/audio bukan JSON valid, diabaikan")
+-                    continue
+-
+-                device_id = header.get("device_id")
+-                channel_id = header.get("channel_id")
+-                seq_no = header.get("seq_no")
+-                timestamp_ms = header.get("timestamp_ms")
+-                chunk_duration_ms = header.get("chunk_duration_ms")
+-                pcm_base64 = header.get("pcm_base64")
+-                sample_rate = header.get("sample_rate")
+-
+-                if None in (
+-                    device_id,
+-                    channel_id,
+-                    seq_no,
+-                    timestamp_ms,
+-                    chunk_duration_ms,
+-                    pcm_base64,
+-                    sample_rate,
+-                ):
+-                    logger.warning("pesan /ws/audio kurang field wajib, diabaikan: %s", header)
+-                    continue
+-
+-                bit_depth = header.get("bit_depth")
+-                if bit_depth is not None and bit_depth != 16:
+-                    logger.warning(
+-                        "bit_depth tidak didukung: %s, hanya 16-bit yang didukung saat ini",
+-                        bit_depth,
+-                    )
+-                    continue
+-
+-                device_id_for_reset = (device_id, channel_id)
+-                pcm_samples = _decode_pcm_base64(pcm_base64)
+-
+-                with current_app.app_context():
+-                    upsert_device_seen(device_id)
+-
+-                    segment, gap_event = _segment_buffer.add_chunk(
+-                        device_id=device_id,
+-                        channel_id=channel_id,
+-                        timestamp_ms=timestamp_ms,
+-                        seq_no=seq_no,
+-                        chunk_duration_ms=chunk_duration_ms,
+-                        pcm_samples=pcm_samples,
+-                        sample_rate=sample_rate,
+-                    )
+-
+-                    if gap_event is not None:
+-                        logger.warning(
+-                            "gap terdeteksi device=%s channel=%s expected_seq=%s received_seq=%s",
+-                            gap_event.device_id,
+-                            gap_event.channel_id,
+-                            gap_event.expected_seq_no,
+-                            gap_event.received_seq_no,
+-                        )
+-
+-                    if segment is not None:
+-                        _handle_segment(segment)
++                connection.receive(raw_message)
++                if connection.closed:
++                    ws.close(reason=1008, message="replaced session")
++                    break
+         finally:
+-            # §2.4: state segmen boleh direset saat koneksi berakhir/reconnect.
+-            if device_id_for_reset is not None:
+-                _segment_buffer.reset_channel(*device_id_for_reset)
++            connection.close()
+diff --git a/backend/ingestion/audio_segment_buffer.py b/backend/ingestion/audio_segment_buffer.py
+--- a/backend/ingestion/audio_segment_buffer.py
++++ b/backend/ingestion/audio_segment_buffer.py
+@@ -1,15 +1,19 @@
+ """Logika murni penyusunan ulang chunk audio kecil menjadi segmen 5 detik
+-(INTEGRATION_CONTRACT.md §2.2, §4.1).
++(INTEGRATION_CONTRACT.md §2.2, §4.1 — durasi segmen model dikoreksi dari asumsi
++awal 10 detik menjadi 5 detik, terverifikasi dari kode preprocessing asli Nathanael).
+ 
+ Dipisahkan dari I/O (websocket) supaya mudah di-unit-test (FR-SW-002) — lihat pola
+ yang sama di trend_analysis (SDD_SOFTWARE.md §6).
+ 
+ ⚠️ Sample rate yang disimpan di sini adalah sample rate ASLI FIRMWARE (mis. 16000 Hz,
+-dari header chunk — INTEGRATION_CONTRACT.md §2.3). Sejak Fase 1, segmen utuh
+-dikirim ke ML service sebagai WAV; service itu yang melakukan resample sendiri.
++dari header chunk — INTEGRATION_CONTRACT.md §2.3), BUKAN 22000 Hz target model.
++Resample ke 22000 Hz dilakukan SEKALI di `inference/preprocessing.py` atas segmen
++5 detik penuh, bukan per-chunk kecil — lihat docstring modul itu untuk alasannya.
+ """
+ 
+ from dataclasses import dataclass, field
++from array import array
++import numpy as np
+ 
+ 
+ @dataclass
+@@ -18,25 +22,31 @@
+     channel_id: int
+     expected_seq_no: int
+     received_seq_no: int
++    reason: str = "sequence_gap"
++    lost_samples: int | None = None
++    discarded_samples: int = 0
+ 
+ 
+-@dataclass
++@dataclass(frozen=True)
+ class Segment:
+     device_id: str
+     channel_id: int
+     segment_start_ms: int
+     segment_end_ms: int
+-    pcm_samples: list[int]
++    pcm_samples: np.ndarray
+     sample_rate: int
+ 
+ 
+ @dataclass
+ class _ChannelBuffer:
+-    pcm_samples: list[int] = field(default_factory=list)
++    pcm_samples: array = field(default_factory=lambda: array("h"))
+     segment_start_ms: int | None = None
+     accumulated_ms: int = 0
+     last_seq_no: int | None = None
+     sample_rate: int | None = None
++    next_sample: int | None = None
++    stream_id: str | None = None
++    next_timestamp_ms: int | None = None
+ 
+ 
+ class AudioSegmentBuffer:
+@@ -59,41 +69,71 @@
+         chunk_duration_ms: int,
+         pcm_samples: list[int],
+         sample_rate: int,
++        sample_start: int | None = None,
++        stream_id: str | None = None,
+     ) -> tuple[Segment | None, GapEvent | None]:
+         key = (device_id, channel_id)
+         buf = self._buffers.setdefault(key, _ChannelBuffer())
+ 
+         gap_event: GapEvent | None = None
+-        if buf.last_seq_no is not None and seq_no != buf.last_seq_no + 1:
+-            gap_event = GapEvent(
+-                device_id=device_id,
+-                channel_id=channel_id,
+-                expected_seq_no=buf.last_seq_no + 1,
+-                received_seq_no=seq_no,
+-            )
++        reason = None
++        lost = None
++        if buf.last_seq_no is not None:
++            if buf.stream_id != stream_id:
++                reason = "stream_change"
++            elif buf.sample_rate is not None and buf.sample_rate != sample_rate:
++                reason = "format_change"
++            elif seq_no != buf.last_seq_no + 1:
++                reason = "sequence_gap"
++            if reason is None and buf.next_sample != sample_start:
++                reason = "sample_gap"
++            if buf.next_sample is not None and sample_start is not None and stream_id == buf.stream_id:
++                lost = max(0, sample_start - buf.next_sample)
++            # Legacy timestamps are estimated at send, so tolerate 100 ms jitter.
++            # Sample indexes take precedence: a later NTP jump does not lose PCM.
++            if (reason is None and sample_start is None and buf.next_timestamp_ms is not None
++                    and abs(timestamp_ms - buf.next_timestamp_ms) > 100):
++                reason = "timestamp_gap"
++            if reason:
++                gap_event = GapEvent(device_id, channel_id, buf.last_seq_no + 1, seq_no,
++                                     reason, lost, len(buf.pcm_samples))
++                buf = _ChannelBuffer()
++                self._buffers[key] = buf
+         buf.last_seq_no = seq_no
++        buf.next_sample = sample_start + len(pcm_samples) if sample_start is not None else None
++        buf.stream_id = stream_id
++        buf.next_timestamp_ms = timestamp_ms + chunk_duration_ms
+ 
+         if buf.segment_start_ms is None:
+             buf.segment_start_ms = timestamp_ms
+             buf.sample_rate = sample_rate
+ 
+-        buf.pcm_samples.extend(pcm_samples)
+-        buf.accumulated_ms += chunk_duration_ms
++        remaining_ms = self._segment_duration_ms - buf.accumulated_ms
++        take_ms = min(chunk_duration_ms, remaining_ms)
++        take = len(pcm_samples) if take_ms == chunk_duration_ms else sample_rate * take_ms // 1000
++        buf.pcm_samples.extend(pcm_samples[:take])
++        buf.accumulated_ms += take_ms
+ 
+         segment: Segment | None = None
+-        if buf.accumulated_ms >= self._segment_duration_ms:
+-            segment = Segment(
+-                device_id=device_id,
+-                channel_id=channel_id,
+-                segment_start_ms=buf.segment_start_ms,
+-                segment_end_ms=buf.segment_start_ms + buf.accumulated_ms,
+-                pcm_samples=buf.pcm_samples,
+-                sample_rate=buf.sample_rate,
+-            )
+-            self._buffers[key] = _ChannelBuffer(last_seq_no=buf.last_seq_no)
++        if buf.accumulated_ms == self._segment_duration_ms:
++            # Immutable bytes backing: neither caller nor the next buffer can mutate a job.
++            pcm = np.frombuffer(buf.pcm_samples.tobytes(), dtype=np.int16)
++            segment = Segment(device_id, channel_id, buf.segment_start_ms,
++                              buf.segment_start_ms + self._segment_duration_ms, pcm, sample_rate)
++            buf.pcm_samples = array("h", pcm_samples[take:])
++            buf.segment_start_ms = segment.segment_end_ms if take < len(pcm_samples) else None
++            buf.accumulated_ms = chunk_duration_ms - take_ms
++        buf.sample_rate = sample_rate
+ 
+         return segment, gap_event
+ 
+     def reset_channel(self, device_id: str, channel_id: int) -> None:
+         """Dipanggil saat websocket reconnect — state segmen boleh direset (§2.4)."""
+         self._buffers.pop((device_id, channel_id), None)
++
++    def reset_device(self, device_id: str) -> int:
++        discarded = 0
++        for key in list(self._buffers):
++            if key[0] == device_id:
++                discarded += len(self._buffers.pop(key).pcm_samples)
++        return discarded
+diff --git a/backend/ingestion/audio_worker.py b/backend/ingestion/audio_worker.py
+new file mode 100644
+--- /dev/null
++++ b/backend/ingestion/audio_worker.py
+@@ -0,0 +1,151 @@
++"""One lazy, process-local FIFO consumer. Queue stores only bounded PCM segments.
++
++Stop cancels queued/active work cooperatively; Python cannot interrupt a native
++model call. A timed-out stop returns False and the daemon cannot prevent exit.
++"""
++import atexit
++from collections import Counter, deque
++from dataclasses import dataclass
++import logging
++import os
++from threading import Condition, Event, Thread
++from time import monotonic
++
++from backend.models import db
++
++logger = logging.getLogger(__name__)
++
++
++class Cancelled(Exception):
++    pass
++
++
++@dataclass
++class AudioJob:
++    segment: object
++    cancelled: Event
++    ready_at: float
++
++    def check_cancelled(self):
++        if self.cancelled.is_set():
++            raise Cancelled()
++
++
++class AudioWorker:
++    def __init__(self, app, process, capacity=8, max_wait_seconds=10):
++        if capacity < 1 or max_wait_seconds <= 0:
++            raise ValueError('audio queue capacity and max wait must be positive')
++        self.app, self.process = app, process
++        self.capacity, self.max_wait_seconds = capacity, max_wait_seconds
++        self._condition = Condition()
++        self._queue = deque()
++        self._counts = Counter()
++        self._stopping = False
++        self._active = None
++        self.thread = None
++        self._pid = None
++        atexit.register(self.stop)
++
++    def start(self):
++        with self._condition:
++            if self._stopping:
++                return
++            if self.thread is not None:
++                if self._pid != os.getpid():
++                    raise RuntimeError('Do not fork after starting audio worker')
++                return
++            self._pid = os.getpid()
++            self.thread = Thread(target=self._run, name='audio-inference', daemon=True)
++            self.thread.start()
++
++    def submit(self, segment, cancelled):
++        self.start()
++        with self._condition:
++            self._counts['received'] += 1
++            # Remove obsolete session work immediately, freeing PCM memory.
++            kept = deque(j for j in self._queue if not j.cancelled.is_set())
++            self._counts['cancelled'] += len(self._queue) - len(kept)
++            self._queue = kept
++            if self._stopping or len(self._queue) >= self.capacity:
++                self._counts['rejected'] += 1
++                logger.warning('audio_queue_rejected policy=reject_newest queued=%d', len(self._queue))
++                return False
++            self._queue.append(AudioJob(segment, cancelled, monotonic()))
++            self._counts['accepted'] += 1
++            self._counts['high_water'] = max(self._counts['high_water'], len(self._queue))
++            self._condition.notify_all()
++            return True
++
++    def snapshot(self):
++        with self._condition:
++            keys = ('received', 'accepted', 'completed', 'failed', 'rejected', 'cancelled', 'high_water')
++            return {**{k: self._counts[k] for k in keys}, 'queued': len(self._queue),
++                    'active': int(self._active is not None),
++                    'wait_max_ms': self._counts['wait_max_ms'],
++                    'total_max_ms': self._counts['total_max_ms']}
++
++    def _run(self):
++        while True:
++            with self._condition:
++                self._condition.wait_for(lambda: self._queue or self._stopping)
++                if self._stopping:
++                    return
++                job = self._queue.popleft()
++                self._active = job
++            started = monotonic()
++            wait_ms = (started - job.ready_at) * 1000
++            status = 'completed'
++            reason = 'processed'
++            try:
++                job.check_cancelled()
++                if wait_ms > self.max_wait_seconds * 1000:
++                    raise Cancelled('queue deadline')
++                # Session is scoped to THIS job, including exceptions and rollback.
++                with self.app.app_context():
++                    try:
++                        self.process(job)
++                    except BaseException:
++                        db.session.rollback()
++                        raise
++                    finally:
++                        db.session.remove()
++            except Cancelled as exc:
++                status = 'cancelled'
++                reason = str(exc) or 'session_or_shutdown'
++            except Exception:
++                status = 'failed'
++                reason = 'exception'
++                logger.exception('audio_job_failed')
++            finally:
++                total_ms = (monotonic() - job.ready_at) * 1000
++                with self._condition:
++                    self._counts[status] += 1
++                    self._counts['wait_max_ms'] = max(self._counts['wait_max_ms'], wait_ms)
++                    self._counts['total_max_ms'] = max(self._counts['total_max_ms'], total_ms)
++                    self._active = None
++                    self._condition.notify_all()
++                logger.info('audio_job status=%s reason=%s device=%s channel=%s wait_ms=%.3f processing_ms=%.3f total_ms=%.3f stats=%s',
++                            status, reason, getattr(job.segment, 'device_id', None),
++                            getattr(job.segment, 'channel_id', None), wait_ms, total_ms - wait_ms, total_ms, self.snapshot())
++                job = None  # release PCM while waiting for next job
++
++    def wait_idle(self, timeout=10):
++        with self._condition:
++            return self._condition.wait_for(lambda: not self._queue and self._active is None, timeout)
++
++    def stop(self, timeout=2):
++        with self._condition:
++            self._stopping = True
++            self._counts['cancelled'] += len(self._queue)
++            self._queue.clear()
++            if self._active is not None:
++                self._active.cancelled.set()
++            self._condition.notify_all()
++        if self.thread is not None:
++            self.thread.join(timeout)
++            stopped = not self.thread.is_alive()
++            if stopped:
++                atexit.unregister(self.stop)
++            return stopped
++        atexit.unregister(self.stop)
++        return True
+diff --git a/backend/config.py b/backend/config.py
+--- a/backend/config.py
++++ b/backend/config.py
+@@ -50,6 +50,11 @@
+ 
+     # ✅ Durasi segmen audio 5 detik sesuai INTEGRATION_CONTRACT.md §4.1.
+     AUDIO_SEGMENT_DURATION_MS = 5_000
++    # One FIFO worker; eight queued 5s/16k int16 segments use ~1.28 MB PCM.
++    AUDIO_QUEUE_CAPACITY = int(os.environ.get("AUDIO_QUEUE_CAPACITY", "8"))
++    AUDIO_QUEUE_MAX_WAIT_SECONDS = float(os.environ.get("AUDIO_QUEUE_MAX_WAIT_SECONDS", "10"))
++    AUDIO_MAX_DEVICES = int(os.environ.get("AUDIO_MAX_DEVICES", "8"))
++    SOCK_SERVER_OPTIONS = {"max_message_size": 260000}
+ 
+     # ⚠️ Nilai diusulkan di SRS_SOFTWARE.md FR-SW-004, belum divalidasi tim — timeout heartbeat
+     # MQTT status sebelum device ditandai offline.
+diff --git a/backend/analysis/cycle_segmenter.py b/backend/analysis/cycle_segmenter.py
+--- a/backend/analysis/cycle_segmenter.py
++++ b/backend/analysis/cycle_segmenter.py
+@@ -52,7 +52,7 @@
+         )
+         return _empty("unsupported_sample_rate")
+ 
+-    if not pcm_samples:
++    if len(pcm_samples) == 0:
+         return _empty("no_cycles")
+ 
+     x = np.asarray(pcm_samples, dtype=np.float64) / _PCM_INT16_SCALE
+diff --git a/backend/tests/test_audio_segment_buffer.py b/backend/tests/test_audio_segment_buffer.py
+--- a/backend/tests/test_audio_segment_buffer.py
++++ b/backend/tests/test_audio_segment_buffer.py
+@@ -34,7 +34,7 @@
+     assert segment.channel_id == 1
+     assert segment.segment_start_ms == 0
+     assert segment.segment_end_ms == 5_000
+-    assert segment.pcm_samples == [1, 2, 3] * 5
++    assert list(segment.pcm_samples) == [1, 2, 3] * 5
+     assert segment.sample_rate == SAMPLE_RATE
+ 
+ 
+@@ -99,5 +99,64 @@
+     # normal — tapi buffer tetap pakai sample_rate dari chunk PERTAMA segmen ini)
+     segment, _ = buf.add_chunk("dev1", 1, 1000, 1, 1000, [1], sample_rate=8_000)
+ 
+-    assert segment is not None
+-    assert segment.sample_rate == 16_000
++    assert segment is None  # a format change must discard the partial segment
++
++
++def test_gap_discards_partial_instead_of_joining_across_missing_audio():
++    buf = AudioSegmentBuffer(segment_duration_ms=2000)
++    buf.add_chunk('d', 1, 0, 0, 1000, [1], SAMPLE_RATE)
++    segment, gap = buf.add_chunk('d', 1, 2000, 2, 1000, [2], SAMPLE_RATE)
++    assert gap is not None
++    assert segment is None
++    segment, _ = buf.add_chunk('d', 1, 3000, 3, 1000, [3], SAMPLE_RATE)
++    assert list(segment.pcm_samples) == [2, 3]
++
++
++def test_sample_index_exposes_ring_drop_even_with_sequential_message_numbers():
++    buf = AudioSegmentBuffer(segment_duration_ms=2000)
++    buf.add_chunk('d', 1, 0, 0, 1000, [1], SAMPLE_RATE, sample_start=0, stream_id='boot')
++    segment, gap = buf.add_chunk('d', 1, 1000, 1, 1000, [2], SAMPLE_RATE,
++                                 sample_start=50, stream_id='boot')
++    assert segment is None
++    assert gap.reason == 'sample_gap'
++    assert gap.lost_samples == 49
++
++
++def test_stream_switch_discards_partial():
++    buf = AudioSegmentBuffer(segment_duration_ms=2000)
++    buf.add_chunk('d', 1, 0, 0, 1000, [1], SAMPLE_RATE, sample_start=0, stream_id='a')
++    segment, gap = buf.add_chunk('d', 1, 1000, 1, 1000, [2], SAMPLE_RATE,
++                                 sample_start=1, stream_id='b')
++    assert segment is None
++    assert gap.reason == 'stream_change'
++
++
++def test_two_second_chunks_split_into_exact_five_second_segments():
++    import numpy as np
++    buf = AudioSegmentBuffer()
++    for seq in range(2):
++        segment, gap = buf.add_chunk('d', 1, seq*2000, seq, 2000, [seq]*32000, 16000,
++                                     sample_start=seq*32000, stream_id='a')
++        assert segment is None and gap is None
++    first, gap = buf.add_chunk('d', 1, 4000, 2, 2000, [2]*32000, 16000,
++                               sample_start=64000, stream_id='a')
++    assert gap is None
++    assert len(first.pcm_samples) == 80000
++    assert first.segment_end_ms == 5000
++    assert not first.pcm_samples.flags.writeable
++    for seq in range(3,5):
++        second, gap = buf.add_chunk('d', 1, seq*2000, seq, 2000, [seq]*32000, 16000,
++                                    sample_start=seq*32000, stream_id='a')
++    assert len(second.pcm_samples) == 80000
++    assert second.segment_start_ms == 5000
++    assert list(second.pcm_samples[:16000]) == [2]*16000
++    assert np.array_equal(first.pcm_samples[-16000:], [2]*16000)
++
++
++def test_ntp_jump_does_not_break_sample_index_continuity():
++    buf = AudioSegmentBuffer(segment_duration_ms=2000)
++    buf.add_chunk('d',1,0,0,1000,[1],16000,sample_start=0,stream_id='a')
++    segment, gap = buf.add_chunk('d',1,1700000000000,1,1000,[2],16000,
++                                 sample_start=1,stream_id='a')
++    assert gap is None
++    assert list(segment.pcm_samples) == [1,2]
+diff --git a/backend/tests/test_audio_receiver.py b/backend/tests/test_audio_receiver.py
+new file mode 100644
+--- /dev/null
++++ b/backend/tests/test_audio_receiver.py
+@@ -0,0 +1,151 @@
++import base64
++import json
++from threading import Event
++
++import pytest
++
++from backend.ingestion.websocket_server import AudioReceiver, _decode_pcm_base64
++
++
++def message(seq=0, ch=1, stream='boot', sample_start=None, **extra):
++    data = dict(device_id='test-device', channel_id=ch, seq_no=seq,
++                timestamp_ms=1700000000000 + seq * 250, chunk_duration_ms=250,
++                sample_rate=16000, bit_depth=16, pcm_base64=base64.b64encode(b'\x01\x00'*4000).decode())
++    if stream is not None:
++        data.update(stream_id=stream, sample_start=seq*4000 if sample_start is None else sample_start)
++    data.update(extra)
++    return json.dumps(data)
++
++
++class Sink:
++    def __init__(self):
++        self.jobs = []
++    def submit(self, segment, cancelled):
++        self.jobs.append((segment, cancelled))
++        return True
++
++
++def test_receiver_assembles_four_channels_without_waiting_for_inference(app):
++    sink = Sink()
++    receiver = AudioReceiver(app, sink)
++    conn = receiver.connection()
++    for seq in range(20):
++        for ch in range(1,5):
++            assert conn.receive(message(seq, ch))
++    assert len(sink.jobs) == 4
++    assert all(len(s.pcm_samples) == 80000 for s,_ in sink.jobs)
++    assert all(not s.pcm_samples.flags.writeable for s,_ in sink.jobs)
++    conn.close()
++    assert all(cancel.is_set() for _,cancel in sink.jobs)
++
++
++def test_old_close_and_old_messages_cannot_erase_new_connection(app):
++    sink = Sink()
++    receiver = AudioReceiver(app, sink)
++    old, new = receiver.connection(), receiver.connection()
++    assert old.receive(message())
++    assert new.receive(message())
++    assert not old.receive(message(1))
++    old.close()
++    for seq in range(1,20):
++        assert new.receive(message(seq))
++    assert len(sink.jobs) == 1
++    assert not sink.jobs[0][1].is_set()
++    new.close()
++
++
++def test_stream_change_resets_all_channels_and_cancels_queued_work(app):
++    sink = Sink()
++    conn = AudioReceiver(app, sink).connection()
++    for seq in range(20):
++        conn.receive(message(seq, 1))
++    conn.receive(message(0,2))
++    assert conn.receive(message(0,1,stream='new'))
++    assert sink.jobs[0][1].is_set()
++    for seq in range(1,20):
++        conn.receive(message(seq,2,stream='new'))
++    assert len(sink.jobs) == 1  # channel 2's old partial must be gone
++    conn.close()
++
++
++@pytest.mark.parametrize('raw', ['[]','null','{"pcm_base64":"private-do-not-log"}',
++    message(pcm_base64='!'), message(pcm_base64='AA=='), message(sample_rate=True),
++    message(bit_depth=24),message(channel_id=5),message(sample_start=-1),
++    message(stream_id=None),message(chunk_duration_ms=50000)])
++def test_invalid_frame_does_not_kill_receiver_or_print_payload(app, caplog, raw):
++    conn = AudioReceiver(app, Sink()).connection()
++    assert not conn.receive(raw)
++    assert conn.receive(message())
++    assert 'private-do-not-log' not in caplog.text
++    conn.close()
++
++
++def test_decode_signed_little_endian_and_reject_invalid():
++    assert list(_decode_pcm_base64('AID/fwAA//8=')) == [-32768,32767,0,-1]
++    with pytest.raises(ValueError):
++        _decode_pcm_base64('!')
++
++
++def test_real_receiver_continues_while_worker_is_blocked_and_rejects_full_queue(app, monkeypatch):
++    from backend.ingestion.audio_worker import AudioWorker
++    from backend.ingestion import websocket_server as module
++    entered, release = Event(), Event()
++    original = module.run_mock_inference
++    def blocked(**kwargs):
++        entered.set()
++        assert release.wait(3)
++        return original(**kwargs)
++    monkeypatch.setattr(module, 'run_mock_inference', blocked)
++    worker = AudioWorker(app, lambda job: module._handle_segment(job.segment, job), capacity=2)
++    conn = AudioReceiver(app, worker).connection()
++    try:
++        for seq in range(20):
++            conn.receive(message(seq, 1))
++        assert entered.wait(2)
++        for seq in range(20):
++            for ch in (2,3,4):
++                assert conn.receive(message(seq,ch))
++        assert conn.chunks == 80
++        assert worker.snapshot()['queued'] == 2
++        assert worker.snapshot()['rejected'] == 1
++        conn.close()  # active inference must not save stale-session results
++        release.set()
++        assert worker.wait_idle(3)
++        from backend.models.classification import ReadingClassification
++        with app.app_context():
++            assert ReadingClassification.query.count() == 0
++        assert worker.snapshot()['cancelled'] == 3
++    finally:
++        release.set()
++        worker.stop(3)
++
++
++def test_worker_rolls_back_failed_transaction_then_persists_next_job(app):
++    from backend.ingestion.audio_worker import AudioWorker
++    from backend.models import db
++    from backend.models.device import Device
++    from backend.ingestion import websocket_server as module
++    def process(job):
++        if job.segment == 'broken':
++            db.session.add(Device(device_id='must-rollback'))
++            db.session.flush()
++            raise RuntimeError('fail after flush')
++        module._handle_segment(job.segment, job)
++    worker = AudioWorker(app, process, capacity=4)
++    conn = AudioReceiver(app, worker).connection()
++    try:
++        worker.submit('broken', Event())
++        for seq in range(20):
++            conn.receive(message(seq))
++        assert worker.wait_idle(3)
++        with app.app_context():
++            assert db.session.get(Device, 'must-rollback') is None
++            from backend.models.classification import ReadingClassification
++            reading = ReadingClassification.query.one()
++            assert reading.device_id == 'test-device'
++            assert reading.channel_id == 1
++        assert worker.snapshot()['completed'] == 1
++        assert worker.snapshot()['failed'] == 1
++    finally:
++        conn.close()
++        worker.stop(3)
+diff --git a/backend/tests/test_audio_worker.py b/backend/tests/test_audio_worker.py
+new file mode 100644
+--- /dev/null
++++ b/backend/tests/test_audio_worker.py
+@@ -0,0 +1,78 @@
++from threading import Event
++import time
++
++from backend.ingestion.audio_worker import AudioWorker, Cancelled
++
++
++def test_bounded_queue_nonblocking_order_and_survives_failure(app):
++    entered, release = Event(), Event()
++    seen = []
++
++    def process(job):
++        if job.segment == 0:
++            entered.set()
++            assert release.wait(3)
++            raise ValueError('one bad job')
++        seen.append(job.segment)
++
++    worker = AudioWorker(app, process, capacity=2)
++    try:
++        assert worker.submit(0, Event())
++        assert entered.wait(2)
++        start = time.monotonic()
++        assert worker.submit(1, Event())
++        assert worker.submit(2, Event())
++        assert not worker.submit(3, Event())
++        assert time.monotonic() - start < .1
++        assert worker.snapshot()['queued'] == 2
++        release.set()
++        assert worker.wait_idle(3)
++        stats = worker.snapshot()
++        assert seen == [1, 2]
++        assert stats['failed'] == 1
++        assert stats['completed'] == 2
++        assert stats['rejected'] == 1
++        assert stats['high_water'] == 2
++    finally:
++        release.set()
++        assert worker.stop(3)
++
++
++def test_cancelled_session_never_processes_queued_jobs(app):
++    entered, release, old = Event(), Event(), Event()
++    seen = []
++    def process(job):
++        entered.set()
++        release.wait(3)
++        job.check_cancelled()
++        seen.append(job.segment)
++    worker = AudioWorker(app, process, capacity=2)
++    assert worker.submit(1, old)
++    assert entered.wait(2)
++    assert worker.submit(2, old)
++    old.set()
++    release.set()
++    assert worker.wait_idle(3)
++    assert seen == []
++    assert worker.snapshot()['cancelled'] == 2
++    assert worker.stop(3)
++
++
++def test_lazy_idempotent_start_and_bounded_shutdown(app):
++    entered, release = Event(), Event()
++    def process(job):
++        entered.set()
++        release.wait(3)
++        job.check_cancelled()
++    worker = AudioWorker(app, process, capacity=1)
++    assert worker.thread is None
++    worker.start()
++    thread = worker.thread
++    worker.start()
++    assert worker.thread is thread
++    worker.submit(1, Event())
++    assert entered.wait(2)
++    assert not worker.stop(.01)
++    assert not worker.submit(2, Event())
++    release.set()
++    assert worker.stop(3)
+diff --git a/backend/tests/test_cycle_worker.py b/backend/tests/test_cycle_worker.py
+new file mode 100644
+--- /dev/null
++++ b/backend/tests/test_cycle_worker.py
+@@ -0,0 +1,36 @@
++"""Compatibility of queued immutable PCM and the latest cycle pipeline."""
++from threading import Event
++from time import monotonic
++
++import numpy as np
++import pytest
++
++from backend.analysis.cycle_segmenter import CycleDetectionResult, CycleSlice, detect_cycle_slices
++from backend.ingestion import websocket_server as module
++from backend.ingestion.audio_segment_buffer import Segment
++from backend.ingestion.audio_worker import AudioJob, Cancelled
++from backend.models.classification import ReadingClassification
++from backend.models.respiratory_cycle import RespiratoryCycle
++
++
++def test_cycle_detector_accepts_immutable_receiver_pcm():
++    samples = np.zeros(80000, dtype='<i2')
++    samples.flags.writeable = False
++    assert detect_cycle_slices(samples, 16000).status == 'no_cycles'
++
++
++def test_replaced_session_during_cycle_model_call_saves_no_result(app, monkeypatch):
++    cancelled = Event()
++    segment = Segment('latest-device', 1, 1700000000000, 1700000005000,
++                      np.zeros(80000, dtype='<i2'), 16000)
++    monkeypatch.setattr(module, 'detect_cycle_slices', lambda *_: CycleDetectionResult(
++        status='detected', cycles=[CycleSlice(1, .5, 2.0, [0] * 24000, .1)]))
++    def classify(**kwargs):
++        cancelled.set()  # replacement/disconnect while HTTP call was in flight
++        return {'segment_id': 'must-not-save'}
++    monkeypatch.setattr(module, '_classify_input', classify)
++    with app.app_context():
++        with pytest.raises(Cancelled):
++            module._handle_segment(segment, AudioJob(segment, cancelled, monotonic()))
++        assert ReadingClassification.query.count() == 0
++        assert RespiratoryCycle.query.count() == 0

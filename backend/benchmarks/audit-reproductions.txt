@@ -1,0 +1,57 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+____________ test_patient_trend_threshold_is_used_for_significance _____________
+
+app = <Flask 'backend.app'>
+
+    @pytest.mark.xfail(strict=True, reason='AUDIT-01: trend service ignores patient-configured significance threshold')
+    def test_patient_trend_threshold_is_used_for_significance(app):
+        _seed_classifications(app, ['normal']*6 + ['abnormal']*6)
+        with app.app_context():
+            patient = Patient(id='audit-patient', name='Audit Fixture')
+            db.session.add(patient)
+            db.session.flush()
+            db.session.get(Device, DEVICE_ID).patient_id = patient.id
+            db.session.add(Threshold(patient_id=patient.id, trend_significance_threshold=999))
+            db.session.commit()
+            trend = compute_and_save_trend(app, DEVICE_ID, 1)
+            assert 0 < trend.slope < 999
+>           assert trend.significant is False
+E           assert True is False
+E            +  where True = TrendResult(window_start=datetime.datetime(2026, 10, 28, 6, 23, 53, 521593), window_end=datetime.datetime(2026, 10, 28, 6, 29, 53, 521593), slope=0.17142857142857143, significant=True).significant
+
+.worktrees/feat-ai-integration-demo/backend/tests/test_audit_known_gaps.py:32: AssertionError
+----------------------------- Captured stderr call -----------------------------
+2026-10-28 13:18:53,544 INFO backend.trend_analysis.trend_service: trend dihitung device=pneumacare-a1b2 channel=1 slope=0.1714 significant=True
+------------------------------ Captured log call -------------------------------
+INFO     backend.trend_analysis.trend_service:trend_service.py:74 trend dihitung device=pneumacare-a1b2 channel=1 slope=0.1714 significant=True
+_____________ test_patient_summary_keeps_unresolved_urgent_status ______________
+
+app = <Flask 'backend.app'>, client = <FlaskClient <Flask 'backend.app'>>
+
+    @pytest.mark.xfail(strict=True, reason='AUDIT-02: latest acknowledged alert hides older unresolved urgent alert')
+    def test_patient_summary_keeps_unresolved_urgent_status(app, client):
+        _seed_patient_with_device(app)
+        with app.app_context():
+            now = datetime.now(timezone.utc)
+            db.session.add_all([
+                Alert(device_id=DEVICE_ID,patient_id='patient-1',level=3,triggers=[],
+                      created_at=now-timedelta(minutes=2),acknowledged=False),
+                Alert(device_id=DEVICE_ID,patient_id='patient-1',level=1,triggers=[],
+                      created_at=now,acknowledged=True),
+            ])
+            db.session.commit()
+        _login_patient(client)
+        response = client.get('/api/v1/patient/me/summary')
+        assert response.status_code == 200
+>       assert response.get_json()['status_label'] == 'urgent'
+E       AssertionError: assert 'stable' == 'urgent'
+E         
+E         - urgent
+E         + stable
+
+.worktrees/feat-ai-integration-demo/backend/tests/test_audit_known_gaps.py:50: AssertionError
+=========================== short test summary info ============================
+FAILED .worktrees/feat-ai-integration-demo/backend/tests/test_audit_known_gaps.py::test_patient_trend_threshold_is_used_for_significance
+FAILED .worktrees/feat-ai-integration-demo/backend/tests/test_audit_known_gaps.py::test_patient_summary_keeps_unresolved_urgent_status
+2 failed in 0.47s

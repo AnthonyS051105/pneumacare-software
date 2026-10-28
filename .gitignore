@@ -62,3 +62,9 @@ backend/models_artifacts/
 # file khusus lokal
 /docs/
 *.local.*
+
+# Isolated demo checkout; managed by git worktree
+.worktrees/
+
+# Active runtime logs; retain versioned summaries separately.
+backend/benchmarks/live-*.log

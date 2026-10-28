@@ -1,0 +1,327 @@
+audio_session_open device=isolated-load continuity=sample_index
+audio_segment_ready device=isolated-load channel=1 accepted=True
+audio_segment_ready device=isolated-load channel=2 accepted=True
+audio_segment_ready device=isolated-load channel=3 accepted=True
+audio_segment_ready device=isolated-load channel=4 accepted=True
+audio_receive device=isolated-load chunks=80 gaps=0 invalid=0 decode_mean_ms=0.156 assemble_mean_ms=1.100 receive_max_ms=2.112
+audio_preprocessing normalize_ms=2.166 resample_ms=7.804 mel_ms=14.248
+audio_model device=isolated-load channel=1 preprocessing_ms=24.441 inference_ms=26.029
+segment inferred device=isolated-load channel=1 predicted_class=none confidence=0.424
+audio_stages device=isolated-load channel=1 durations={'model_total_ms': 50.80702299983386, 'registry_ms': 10.925270000370801, 'persist_ms': 16.263212000012572, 'trend_ms': 6.6751700005625025, 'alert_ms': 5.554721000407881}
+audio_job status=completed reason=processed device=isolated-load channel=1 wait_ms=1.362 processing_ms=90.758 total_ms=92.119 stats={'received': 4, 'accepted': 4, 'completed': 1, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 3, 'active': 0, 'wait_max_ms': 1.361730999633437, 'total_max_ms': 92.11923399925581}
+audio_preprocessing normalize_ms=0.165 resample_ms=2.546 mel_ms=7.381
+audio_model device=isolated-load channel=2 preprocessing_ms=10.288 inference_ms=9.236
+segment inferred device=isolated-load channel=2 predicted_class=none confidence=0.424
+audio_stages device=isolated-load channel=2 durations={'model_total_ms': 19.684097999743244, 'registry_ms': 5.0907079994431115, 'persist_ms': 3.833856999335694, 'trend_ms': 1.0774920001495047, 'alert_ms': 1.1193790005563642}
+audio_job status=completed reason=processed device=isolated-load channel=2 wait_ms=90.569 processing_ms=31.105 total_ms=121.673 stats={'received': 4, 'accepted': 4, 'completed': 2, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 2, 'active': 0, 'wait_max_ms': 90.56854499976907, 'total_max_ms': 121.67337799928646}
+audio_preprocessing normalize_ms=0.125 resample_ms=1.556 mel_ms=6.644
+audio_model device=isolated-load channel=3 preprocessing_ms=8.456 inference_ms=9.990
+segment inferred device=isolated-load channel=3 predicted_class=none confidence=0.424
+audio_stages device=isolated-load channel=3 durations={'model_total_ms': 18.60409599976265, 'registry_ms': 4.734324000310153, 'persist_ms': 3.9514620002591982, 'trend_ms': 1.0609260007186094, 'alert_ms': 1.0990129994752351}
+audio_job status=completed reason=processed device=isolated-load channel=3 wait_ms=119.986 processing_ms=29.738 total_ms=149.723 stats={'received': 4, 'accepted': 4, 'completed': 3, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 1, 'active': 0, 'wait_max_ms': 119.98575500001607, 'total_max_ms': 149.72343599947635}
+audio_preprocessing normalize_ms=0.123 resample_ms=1.465 mel_ms=6.625
+audio_model device=isolated-load channel=4 preprocessing_ms=8.323 inference_ms=10.388
+segment inferred device=isolated-load channel=4 predicted_class=none confidence=0.424
+audio_stages device=isolated-load channel=4 durations={'model_total_ms': 18.872091000048385, 'registry_ms': 4.689544000029855, 'persist_ms': 3.719866000210459, 'trend_ms': 1.1833030002890155, 'alert_ms': 1.0993750001944136}
+audio_job status=completed reason=processed device=isolated-load channel=4 wait_ms=148.132 processing_ms=29.910 total_ms=178.042 stats={'received': 4, 'accepted': 4, 'completed': 4, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 0, 'active': 0, 'wait_max_ms': 148.13192100064043, 'total_max_ms': 178.0420100003539}
+audio_segment_ready device=isolated-load channel=1 accepted=True
+audio_segment_ready device=isolated-load channel=2 accepted=True
+audio_segment_ready device=isolated-load channel=3 accepted=True
+audio_segment_ready device=isolated-load channel=4 accepted=True
+audio_receive device=isolated-load chunks=160 gaps=0 invalid=0 decode_mean_ms=0.158 assemble_mean_ms=1.113 receive_max_ms=2.247
+audio_preprocessing normalize_ms=2.378 resample_ms=6.678 mel_ms=11.569
+audio_model device=isolated-load channel=1 preprocessing_ms=20.860 inference_ms=22.483
+segment inferred device=isolated-load channel=1 predicted_class=none confidence=0.424
+audio_stages device=isolated-load channel=1 durations={'model_total_ms': 43.750486000135425, 'registry_ms': 9.111651000239362, 'persist_ms': 5.966988999716705, 'trend_ms': 1.6947539998000138, 'alert_ms': 1.6124820003824425}
+audio_job status=completed reason=processed device=isolated-load channel=1 wait_ms=0.821 processing_ms=62.638 total_ms=63.459 stats={'received': 8, 'accepted': 8, 'completed': 5, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 3, 'active': 0, 'wait_max_ms': 148.13192100064043, 'total_max_ms': 178.0420100003539}
+audio_preprocessing normalize_ms=0.171 resample_ms=2.264 mel_ms=11.001
+audio_model device=isolated-load channel=2 preprocessing_ms=13.690 inference_ms=35.965
+segment inferred device=isolated-load channel=2 predicted_class=none confidence=0.424
+audio_stages device=isolated-load channel=2 durations={'model_total_ms': 49.94556399924477, 'registry_ms': 5.914598999879672, 'persist_ms': 4.543263000414299, 'trend_ms': 1.7237559995919582, 'alert_ms': 1.767169000231661}
+audio_job status=completed reason=processed device=isolated-load channel=2 wait_ms=60.573 processing_ms=64.413 total_ms=124.986 stats={'received': 8, 'accepted': 8, 'completed': 6, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 2, 'active': 0, 'wait_max_ms': 148.13192100064043, 'total_max_ms': 178.0420100003539}
+audio_preprocessing normalize_ms=0.195 resample_ms=2.421 mel_ms=11.899
+audio_model device=isolated-load channel=3 preprocessing_ms=14.763 inference_ms=21.224
+segment inferred device=isolated-load channel=3 predicted_class=none confidence=0.424
+audio_stages device=isolated-load channel=3 durations={'model_total_ms': 36.26462600004743, 'registry_ms': 5.6345789998886175, 'persist_ms': 5.068692999884661, 'trend_ms': 1.7193490002682665, 'alert_ms': 1.698095000392641}
+audio_job status=completed reason=processed device=isolated-load channel=3 wait_ms=121.840 processing_ms=50.837 total_ms=172.677 stats={'received': 8, 'accepted': 8, 'completed': 7, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 1, 'active': 0, 'wait_max_ms': 148.13192100064043, 'total_max_ms': 178.0420100003539}
+audio_preprocessing normalize_ms=0.166 resample_ms=2.219 mel_ms=10.254
+audio_model device=isolated-load channel=4 preprocessing_ms=12.836 inference_ms=14.153
+segment inferred device=isolated-load channel=4 predicted_class=none confidence=0.424
+audio_stages device=isolated-load channel=4 durations={'model_total_ms': 27.24488400053815, 'registry_ms': 6.06608199996117, 'persist_ms': 4.647669999940263, 'trend_ms': 1.673119999395567, 'alert_ms': 1.7178690004584496}
+audio_job status=completed reason=processed device=isolated-load channel=4 wait_ms=169.625 processing_ms=41.731 total_ms=211.355 stats={'received': 8, 'accepted': 8, 'completed': 8, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 0, 'active': 0, 'wait_max_ms': 169.6247809995839, 'total_max_ms': 211.35531300024013}
+audio_segment_ready device=isolated-load channel=1 accepted=True
+audio_segment_ready device=isolated-load channel=2 accepted=True
+audio_segment_ready device=isolated-load channel=3 accepted=True
+audio_segment_ready device=isolated-load channel=4 accepted=True
+audio_receive device=isolated-load chunks=240 gaps=0 invalid=0 decode_mean_ms=0.158 assemble_mean_ms=1.111 receive_max_ms=2.247
+audio_preprocessing normalize_ms=2.801 resample_ms=4.252 mel_ms=11.341
+audio_model device=isolated-load channel=1 preprocessing_ms=18.637 inference_ms=24.528
+segment inferred device=isolated-load channel=1 predicted_class=none confidence=0.424
+audio_stages device=isolated-load channel=1 durations={'model_total_ms': 43.48507699978654, 'registry_ms': 8.998876999612548, 'persist_ms': 6.6898140003104345, 'trend_ms': 2.675302000170632, 'alert_ms': 2.1777550000479096}
+audio_job status=completed reason=processed device=isolated-load channel=1 wait_ms=1.121 processing_ms=64.565 total_ms=65.686 stats={'received': 12, 'accepted': 12, 'completed': 9, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 3, 'active': 0, 'wait_max_ms': 169.6247809995839, 'total_max_ms': 211.35531300024013}
+audio_preprocessing normalize_ms=0.242 resample_ms=2.336 mel_ms=10.755
+audio_model device=isolated-load channel=2 preprocessing_ms=13.526 inference_ms=19.153
+segment inferred device=isolated-load channel=2 predicted_class=none confidence=0.424
+audio_stages device=isolated-load channel=2 durations={'model_total_ms': 33.01829500014719, 'registry_ms': 6.195871000272746, 'persist_ms': 5.266582000331255, 'trend_ms': 1.7023939999489812, 'alert_ms': 1.6934260002017254}
+audio_job status=completed reason=processed device=isolated-load channel=2 wait_ms=63.102 processing_ms=48.392 total_ms=111.494 stats={'received': 12, 'accepted': 12, 'completed': 10, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 2, 'active': 0, 'wait_max_ms': 169.6247809995839, 'total_max_ms': 211.35531300024013}
+audio_preprocessing normalize_ms=0.185 resample_ms=2.462 mel_ms=10.980
+audio_model device=isolated-load channel=3 preprocessing_ms=13.845 inference_ms=14.712
+segment inferred device=isolated-load channel=3 predicted_class=none confidence=0.424
+audio_stages device=isolated-load channel=3 durations={'model_total_ms': 28.85250800045469, 'registry_ms': 5.8661069997469895, 'persist_ms': 5.118672999742557, 'trend_ms': 2.1310960000846535, 'alert_ms': 2.0687149999503163}
+audio_job status=completed reason=processed device=isolated-load channel=3 wait_ms=110.579 processing_ms=44.580 total_ms=155.159 stats={'received': 12, 'accepted': 12, 'completed': 11, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 1, 'active': 0, 'wait_max_ms': 169.6247809995839, 'total_max_ms': 211.35531300024013}
+audio_preprocessing normalize_ms=0.193 resample_ms=2.472 mel_ms=9.767
+audio_model device=isolated-load channel=4 preprocessing_ms=12.582 inference_ms=10.994
+segment inferred device=isolated-load channel=4 predicted_class=none confidence=0.424
+audio_stages device=isolated-load channel=4 durations={'model_total_ms': 23.823183999411413, 'registry_ms': 5.000277000362985, 'persist_ms': 4.273224000826303, 'trend_ms': 1.276230000257783, 'alert_ms': 1.1991910005235695}
+audio_job status=completed reason=processed device=isolated-load channel=4 wait_ms=153.498 processing_ms=35.910 total_ms=189.408 stats={'received': 12, 'accepted': 12, 'completed': 12, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 0, 'active': 0, 'wait_max_ms': 169.6247809995839, 'total_max_ms': 211.35531300024013}
+audio_segment_ready device=isolated-load channel=1 accepted=True
+audio_segment_ready device=isolated-load channel=2 accepted=True
+audio_segment_ready device=isolated-load channel=3 accepted=True
+audio_segment_ready device=isolated-load channel=4 accepted=True
+audio_receive device=isolated-load chunks=320 gaps=0 invalid=0 decode_mean_ms=0.157 assemble_mean_ms=1.102 receive_max_ms=2.247
+audio_preprocessing normalize_ms=0.283 resample_ms=9.086 mel_ms=11.899
+audio_model device=isolated-load channel=1 preprocessing_ms=21.506 inference_ms=26.848
+segment inferred device=isolated-load channel=1 predicted_class=none confidence=0.424
+audio_stages device=isolated-load channel=1 durations={'model_total_ms': 48.65449399949284, 'registry_ms': 6.77650400029961, 'persist_ms': 6.067889999940235, 'trend_ms': 2.1240470005068346, 'alert_ms': 1.7828479994932422}
+audio_job status=completed reason=processed device=isolated-load channel=1 wait_ms=0.515 processing_ms=65.859 total_ms=66.374 stats={'received': 16, 'accepted': 16, 'completed': 13, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 3, 'active': 0, 'wait_max_ms': 169.6247809995839, 'total_max_ms': 211.35531300024013}
+audio_preprocessing normalize_ms=0.188 resample_ms=2.285 mel_ms=11.681
+audio_model device=isolated-load channel=2 preprocessing_ms=14.463 inference_ms=23.376
+segment inferred device=isolated-load channel=2 predicted_class=none confidence=0.424
+audio_stages device=isolated-load channel=2 durations={'model_total_ms': 38.12642600041727, 'registry_ms': 6.309966000117129, 'persist_ms': 5.372438999984297, 'trend_ms': 2.340586999707739, 'alert_ms': 2.2893029999977443}
+audio_job status=completed reason=processed device=isolated-load channel=2 wait_ms=62.783 processing_ms=55.022 total_ms=117.805 stats={'received': 16, 'accepted': 16, 'completed': 14, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 2, 'active': 0, 'wait_max_ms': 169.6247809995839, 'total_max_ms': 211.35531300024013}
+audio_preprocessing normalize_ms=0.378 resample_ms=3.572 mel_ms=12.737
+audio_model device=isolated-load channel=3 preprocessing_ms=16.966 inference_ms=39.349
+segment inferred device=isolated-load channel=3 predicted_class=none confidence=0.424
+audio_stages device=isolated-load channel=3 durations={'model_total_ms': 56.64385999989463, 'registry_ms': 7.161147999795503, 'persist_ms': 6.138517999715987, 'trend_ms': 2.99770699984947, 'alert_ms': 1.8901250005001202}
+audio_job status=completed reason=processed device=isolated-load channel=3 wait_ms=114.782 processing_ms=75.321 total_ms=190.103 stats={'received': 16, 'accepted': 16, 'completed': 15, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 1, 'active': 0, 'wait_max_ms': 169.6247809995839, 'total_max_ms': 211.35531300024013}
+audio_preprocessing normalize_ms=0.190 resample_ms=2.799 mel_ms=11.866
+audio_model device=isolated-load channel=4 preprocessing_ms=15.069 inference_ms=31.140
+segment inferred device=isolated-load channel=4 predicted_class=none confidence=0.424
+audio_stages device=isolated-load channel=4 durations={'model_total_ms': 46.69186200044351, 'registry_ms': 6.736919999639213, 'persist_ms': 8.535943999959272, 'trend_ms': 1.8842819999917992, 'alert_ms': 1.9837780000671046}
+audio_job status=completed reason=processed device=isolated-load channel=4 wait_ms=187.607 processing_ms=66.308 total_ms=253.914 stats={'received': 16, 'accepted': 16, 'completed': 16, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 0, 'active': 0, 'wait_max_ms': 187.6066869999704, 'total_max_ms': 253.91444900014903}
+audio_segment_ready device=isolated-load channel=1 accepted=True
+audio_segment_ready device=isolated-load channel=2 accepted=True
+audio_segment_ready device=isolated-load channel=3 accepted=True
+audio_segment_ready device=isolated-load channel=4 accepted=True
+audio_receive device=isolated-load chunks=400 gaps=0 invalid=0 decode_mean_ms=0.160 assemble_mean_ms=1.132 receive_max_ms=2.555
+audio_preprocessing normalize_ms=2.276 resample_ms=6.734 mel_ms=11.421
+audio_model device=isolated-load channel=1 preprocessing_ms=20.735 inference_ms=22.145
+segment inferred device=isolated-load channel=1 predicted_class=none confidence=0.424
+audio_stages device=isolated-load channel=1 durations={'model_total_ms': 43.22686599971348, 'registry_ms': 9.207967999827815, 'persist_ms': 5.238166000708588, 'trend_ms': 2.824176999638439, 'alert_ms': 1.901002000522567}
+audio_job status=completed reason=processed device=isolated-load channel=1 wait_ms=0.563 processing_ms=62.951 total_ms=63.514 stats={'received': 20, 'accepted': 20, 'completed': 17, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 3, 'active': 0, 'wait_max_ms': 187.6066869999704, 'total_max_ms': 253.91444900014903}
+audio_preprocessing normalize_ms=0.181 resample_ms=2.475 mel_ms=11.059
+audio_model device=isolated-load channel=2 preprocessing_ms=13.929 inference_ms=17.996
+segment inferred device=isolated-load channel=2 predicted_class=none confidence=0.424
+audio_stages device=isolated-load channel=2 durations={'model_total_ms': 32.20226199937315, 'registry_ms': 5.949012999735714, 'persist_ms': 4.997138999897288, 'trend_ms': 2.0621650000975933, 'alert_ms': 2.1999119999236427}
+audio_job status=completed reason=processed device=isolated-load channel=2 wait_ms=61.237 processing_ms=47.948 total_ms=109.186 stats={'received': 20, 'accepted': 20, 'completed': 18, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 2, 'active': 0, 'wait_max_ms': 187.6066869999704, 'total_max_ms': 253.91444900014903}
+audio_preprocessing normalize_ms=0.325 resample_ms=3.665 mel_ms=12.446
+audio_model device=isolated-load channel=3 preprocessing_ms=16.705 inference_ms=17.607
+segment inferred device=isolated-load channel=3 predicted_class=none confidence=0.424
+audio_stages device=isolated-load channel=3 durations={'model_total_ms': 34.60366400031489, 'registry_ms': 6.012503999954788, 'persist_ms': 4.705267000645108, 'trend_ms': 1.7851299999165349, 'alert_ms': 1.6288900005747564}
+audio_job status=completed reason=processed device=isolated-load channel=3 wait_ms=105.791 processing_ms=49.162 total_ms=154.953 stats={'received': 20, 'accepted': 20, 'completed': 19, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 1, 'active': 0, 'wait_max_ms': 187.6066869999704, 'total_max_ms': 253.91444900014903}
+audio_preprocessing normalize_ms=0.168 resample_ms=2.067 mel_ms=8.793
+audio_model device=isolated-load channel=4 preprocessing_ms=11.202 inference_ms=9.529
+segment inferred device=isolated-load channel=4 predicted_class=none confidence=0.424
+audio_stages device=isolated-load channel=4 durations={'model_total_ms': 20.881983999970544, 'registry_ms': 4.530133000116621, 'persist_ms': 3.730921999704151, 'trend_ms': 1.2485400002333336, 'alert_ms': 1.1290630000075907}
+audio_job status=completed reason=processed device=isolated-load channel=4 wait_ms=153.443 processing_ms=31.800 total_ms=185.243 stats={'received': 20, 'accepted': 20, 'completed': 20, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 0, 'active': 0, 'wait_max_ms': 187.6066869999704, 'total_max_ms': 253.91444900014903}
+audio_segment_ready device=isolated-load channel=1 accepted=True
+audio_segment_ready device=isolated-load channel=2 accepted=True
+audio_segment_ready device=isolated-load channel=3 accepted=True
+audio_segment_ready device=isolated-load channel=4 accepted=True
+audio_receive device=isolated-load chunks=480 gaps=0 invalid=0 decode_mean_ms=0.162 assemble_mean_ms=1.136 receive_max_ms=2.555
+audio_preprocessing normalize_ms=1.935 resample_ms=6.509 mel_ms=13.010
+audio_model device=isolated-load channel=1 preprocessing_ms=21.811 inference_ms=16.639
+segment inferred device=isolated-load channel=1 predicted_class=none confidence=0.424
+audio_stages device=isolated-load channel=1 durations={'model_total_ms': 38.7678050001341, 'registry_ms': 8.947446000092896, 'persist_ms': 5.313605000083044, 'trend_ms': 2.1738399991590995, 'alert_ms': 1.8498170002203551}
+audio_job status=completed reason=processed device=isolated-load channel=1 wait_ms=0.891 processing_ms=57.658 total_ms=58.550 stats={'received': 24, 'accepted': 24, 'completed': 21, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 3, 'active': 0, 'wait_max_ms': 187.6066869999704, 'total_max_ms': 253.91444900014903}
+audio_preprocessing normalize_ms=0.183 resample_ms=2.499 mel_ms=9.760
+audio_model device=isolated-load channel=2 preprocessing_ms=12.604 inference_ms=11.851
+segment inferred device=isolated-load channel=2 predicted_class=none confidence=0.424
+audio_stages device=isolated-load channel=2 durations={'model_total_ms': 24.66907699999865, 'registry_ms': 4.7308959992733435, 'persist_ms': 4.303025000808702, 'trend_ms': 1.5602660005242797, 'alert_ms': 1.2837000003855792}
+audio_job status=completed reason=processed device=isolated-load channel=2 wait_ms=56.160 processing_ms=36.939 total_ms=93.099 stats={'received': 24, 'accepted': 24, 'completed': 22, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 2, 'active': 0, 'wait_max_ms': 187.6066869999704, 'total_max_ms': 253.91444900014903}
+audio_preprocessing normalize_ms=0.153 resample_ms=1.946 mel_ms=7.410
+audio_model device=isolated-load channel=3 preprocessing_ms=9.634 inference_ms=7.674
+segment inferred device=isolated-load channel=3 predicted_class=none confidence=0.424
+audio_stages device=isolated-load channel=3 durations={'model_total_ms': 17.457467999520304, 'registry_ms': 4.583484000249882, 'persist_ms': 3.7869980005780235, 'trend_ms': 1.2385290001475369, 'alert_ms': 1.0721470007410971}
+audio_job status=completed reason=processed device=isolated-load channel=3 wait_ms=90.812 processing_ms=28.390 total_ms=119.202 stats={'received': 24, 'accepted': 24, 'completed': 23, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 1, 'active': 0, 'wait_max_ms': 187.6066869999704, 'total_max_ms': 253.91444900014903}
+audio_preprocessing normalize_ms=0.115 resample_ms=1.519 mel_ms=6.768
+audio_model device=isolated-load channel=4 preprocessing_ms=8.572 inference_ms=9.996
+segment inferred device=isolated-load channel=4 predicted_class=none confidence=0.424
+audio_stages device=isolated-load channel=4 durations={'model_total_ms': 18.704058999901463, 'registry_ms': 4.721692000202893, 'persist_ms': 3.813579000052414, 'trend_ms': 1.1714130005202605, 'alert_ms': 1.1389910005163983}
+audio_job status=completed reason=processed device=isolated-load channel=4 wait_ms=117.057 processing_ms=29.827 total_ms=146.884 stats={'received': 24, 'accepted': 24, 'completed': 24, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 0, 'active': 0, 'wait_max_ms': 187.6066869999704, 'total_max_ms': 253.91444900014903}
+audio_segment_ready device=isolated-load channel=1 accepted=True
+audio_segment_ready device=isolated-load channel=2 accepted=True
+audio_segment_ready device=isolated-load channel=3 accepted=True
+audio_segment_ready device=isolated-load channel=4 accepted=True
+audio_receive device=isolated-load chunks=560 gaps=0 invalid=0 decode_mean_ms=0.164 assemble_mean_ms=1.145 receive_max_ms=2.848
+audio_preprocessing normalize_ms=2.726 resample_ms=5.815 mel_ms=11.444
+audio_model device=isolated-load channel=1 preprocessing_ms=20.275 inference_ms=15.460
+segment inferred device=isolated-load channel=1 predicted_class=none confidence=0.424
+trend dihitung device=isolated-load channel=1 slope=0.0000 significant=False
+audio_stages device=isolated-load channel=1 durations={'model_total_ms': 36.06227099953685, 'registry_ms': 9.123951000219677, 'persist_ms': 5.147576000126719, 'trend_ms': 8.228318999499606, 'alert_ms': 1.9502529994497309}
+audio_job status=completed reason=processed device=isolated-load channel=1 wait_ms=0.578 processing_ms=60.968 total_ms=61.546 stats={'received': 28, 'accepted': 28, 'completed': 25, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 3, 'active': 0, 'wait_max_ms': 187.6066869999704, 'total_max_ms': 253.91444900014903}
+audio_preprocessing normalize_ms=0.188 resample_ms=2.118 mel_ms=11.486
+audio_model device=isolated-load channel=2 preprocessing_ms=14.081 inference_ms=30.003
+segment inferred device=isolated-load channel=2 predicted_class=none confidence=0.424
+trend dihitung device=isolated-load channel=2 slope=0.0000 significant=False
+audio_stages device=isolated-load channel=2 durations={'model_total_ms': 44.425291000152356, 'registry_ms': 6.239816999368486, 'persist_ms': 5.013944999518571, 'trend_ms': 7.064065000122355, 'alert_ms': 2.5279390001742286}
+audio_job status=completed reason=processed device=isolated-load channel=2 wait_ms=58.429 processing_ms=65.755 total_ms=124.184 stats={'received': 28, 'accepted': 28, 'completed': 26, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 2, 'active': 0, 'wait_max_ms': 187.6066869999704, 'total_max_ms': 253.91444900014903}
+audio_preprocessing normalize_ms=0.208 resample_ms=2.466 mel_ms=12.125
+audio_model device=isolated-load channel=3 preprocessing_ms=15.067 inference_ms=32.616
+segment inferred device=isolated-load channel=3 predicted_class=none confidence=0.424
+trend dihitung device=isolated-load channel=3 slope=0.0000 significant=False
+audio_stages device=isolated-load channel=3 durations={'model_total_ms': 48.01511200003006, 'registry_ms': 6.621757000175421, 'persist_ms': 6.391470999915327, 'trend_ms': 9.268527000131144, 'alert_ms': 2.3376730005111312}
+audio_job status=completed reason=processed device=isolated-load channel=3 wait_ms=122.345 processing_ms=73.226 total_ms=195.571 stats={'received': 28, 'accepted': 28, 'completed': 27, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 1, 'active': 0, 'wait_max_ms': 187.6066869999704, 'total_max_ms': 253.91444900014903}
+audio_preprocessing normalize_ms=0.191 resample_ms=2.384 mel_ms=12.325
+audio_model device=isolated-load channel=4 preprocessing_ms=15.166 inference_ms=17.580
+segment inferred device=isolated-load channel=4 predicted_class=none confidence=0.424
+trend dihitung device=isolated-load channel=4 slope=0.0000 significant=False
+audio_stages device=isolated-load channel=4 durations={'model_total_ms': 33.04294400004437, 'registry_ms': 5.644621999636001, 'persist_ms': 4.653576999771758, 'trend_ms': 7.807778000824328, 'alert_ms': 2.6960229997712304}
+audio_job status=completed reason=processed device=isolated-load channel=4 wait_ms=193.737 processing_ms=54.365 total_ms=248.102 stats={'received': 28, 'accepted': 28, 'completed': 28, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 0, 'active': 0, 'wait_max_ms': 193.73686600010842, 'total_max_ms': 253.91444900014903}
+audio_segment_ready device=isolated-load channel=1 accepted=True
+audio_segment_ready device=isolated-load channel=2 accepted=True
+audio_segment_ready device=isolated-load channel=3 accepted=True
+audio_segment_ready device=isolated-load channel=4 accepted=True
+audio_receive device=isolated-load chunks=640 gaps=0 invalid=0 decode_mean_ms=0.163 assemble_mean_ms=1.125 receive_max_ms=2.848
+audio_preprocessing normalize_ms=0.337 resample_ms=10.404 mel_ms=13.805
+audio_model device=isolated-load channel=1 preprocessing_ms=24.822 inference_ms=32.594
+segment inferred device=isolated-load channel=1 predicted_class=none confidence=0.424
+trend dihitung device=isolated-load channel=1 slope=0.0000 significant=False
+audio_stages device=isolated-load channel=1 durations={'model_total_ms': 57.741803999306285, 'registry_ms': 9.532729999591538, 'persist_ms': 5.302291000589321, 'trend_ms': 6.889823999699729, 'alert_ms': 2.2587009998460417}
+audio_job status=completed reason=processed device=isolated-load channel=1 wait_ms=0.422 processing_ms=82.206 total_ms=82.628 stats={'received': 32, 'accepted': 32, 'completed': 29, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 3, 'active': 0, 'wait_max_ms': 193.73686600010842, 'total_max_ms': 253.91444900014903}
+audio_preprocessing normalize_ms=0.196 resample_ms=2.563 mel_ms=13.216
+audio_model device=isolated-load channel=2 preprocessing_ms=16.233 inference_ms=21.854
+segment inferred device=isolated-load channel=2 predicted_class=none confidence=0.424
+trend dihitung device=isolated-load channel=2 slope=0.0000 significant=False
+audio_stages device=isolated-load channel=2 durations={'model_total_ms': 38.44811099952494, 'registry_ms': 5.981517999316566, 'persist_ms': 4.47943299968756, 'trend_ms': 8.544137000171759, 'alert_ms': 2.9956049993415945}
+audio_job status=completed reason=processed device=isolated-load channel=2 wait_ms=79.092 processing_ms=61.035 total_ms=140.127 stats={'received': 32, 'accepted': 32, 'completed': 30, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 2, 'active': 0, 'wait_max_ms': 193.73686600010842, 'total_max_ms': 253.91444900014903}
+audio_preprocessing normalize_ms=0.217 resample_ms=3.650 mel_ms=18.513
+audio_model device=isolated-load channel=3 preprocessing_ms=22.789 inference_ms=67.574
+segment inferred device=isolated-load channel=3 predicted_class=none confidence=0.424
+trend dihitung device=isolated-load channel=3 slope=0.0000 significant=False
+audio_stages device=isolated-load channel=3 durations={'model_total_ms': 90.85551499993016, 'registry_ms': 7.9959039994719205, 'persist_ms': 5.927502999838907, 'trend_ms': 11.258745999839448, 'alert_ms': 2.7307720001772395}
+audio_job status=completed reason=processed device=isolated-load channel=3 wait_ms=138.134 processing_ms=119.504 total_ms=257.638 stats={'received': 32, 'accepted': 32, 'completed': 31, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 1, 'active': 0, 'wait_max_ms': 193.73686600010842, 'total_max_ms': 257.6375070002541}
+audio_preprocessing normalize_ms=0.479 resample_ms=3.087 mel_ms=20.617
+audio_model device=isolated-load channel=4 preprocessing_ms=24.585 inference_ms=50.629
+segment inferred device=isolated-load channel=4 predicted_class=none confidence=0.424
+trend dihitung device=isolated-load channel=4 slope=0.0000 significant=False
+audio_stages device=isolated-load channel=4 durations={'model_total_ms': 75.45676700010517, 'registry_ms': 5.047560999628331, 'persist_ms': 8.082467999884102, 'trend_ms': 8.14744499984954, 'alert_ms': 2.5926730004357523}
+audio_job status=completed reason=processed device=isolated-load channel=4 wait_ms=254.941 processing_ms=99.831 total_ms=354.773 stats={'received': 32, 'accepted': 32, 'completed': 32, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 0, 'active': 0, 'wait_max_ms': 254.9414919994888, 'total_max_ms': 354.77251799966325}
+audio_segment_ready device=isolated-load channel=1 accepted=True
+audio_segment_ready device=isolated-load channel=2 accepted=True
+audio_segment_ready device=isolated-load channel=3 accepted=True
+audio_segment_ready device=isolated-load channel=4 accepted=True
+audio_receive device=isolated-load chunks=720 gaps=0 invalid=0 decode_mean_ms=0.160 assemble_mean_ms=1.100 receive_max_ms=2.848
+audio_preprocessing normalize_ms=0.257 resample_ms=5.515 mel_ms=11.192
+audio_model device=isolated-load channel=1 preprocessing_ms=17.139 inference_ms=21.850
+segment inferred device=isolated-load channel=1 predicted_class=none confidence=0.424
+trend dihitung device=isolated-load channel=1 slope=0.0000 significant=False
+audio_stages device=isolated-load channel=1 durations={'model_total_ms': 39.24401099993702, 'registry_ms': 6.003944000440242, 'persist_ms': 4.5112389998394065, 'trend_ms': 7.014560999778041, 'alert_ms': 1.934820000315085}
+audio_job status=completed reason=processed device=isolated-load channel=1 wait_ms=2.229 processing_ms=59.138 total_ms=61.367 stats={'received': 36, 'accepted': 36, 'completed': 33, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 3, 'active': 0, 'wait_max_ms': 254.9414919994888, 'total_max_ms': 354.77251799966325}
+audio_preprocessing normalize_ms=0.170 resample_ms=2.202 mel_ms=9.459
+audio_model device=isolated-load channel=2 preprocessing_ms=11.977 inference_ms=28.578
+segment inferred device=isolated-load channel=2 predicted_class=none confidence=0.424
+trend dihitung device=isolated-load channel=2 slope=0.0000 significant=False
+audio_stages device=isolated-load channel=2 durations={'model_total_ms': 40.84671300006448, 'registry_ms': 5.420464999588148, 'persist_ms': 4.109259999495407, 'trend_ms': 6.1658519998673, 'alert_ms': 1.7287379996560048}
+audio_job status=completed reason=processed device=isolated-load channel=2 wait_ms=59.389 processing_ms=58.660 total_ms=118.049 stats={'received': 36, 'accepted': 36, 'completed': 34, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 2, 'active': 0, 'wait_max_ms': 254.9414919994888, 'total_max_ms': 354.77251799966325}
+audio_preprocessing normalize_ms=0.172 resample_ms=2.452 mel_ms=11.510
+audio_model device=isolated-load channel=3 preprocessing_ms=14.296 inference_ms=21.834
+segment inferred device=isolated-load channel=3 predicted_class=none confidence=0.424
+trend dihitung device=isolated-load channel=3 slope=0.0000 significant=False
+audio_stages device=isolated-load channel=3 durations={'model_total_ms': 36.418853999748535, 'registry_ms': 5.639357999825734, 'persist_ms': 4.7331970008599455, 'trend_ms': 7.119705999684811, 'alert_ms': 1.8673700005820137}
+audio_job status=completed reason=processed device=isolated-load channel=3 wait_ms=115.739 processing_ms=56.176 total_ms=171.915 stats={'received': 36, 'accepted': 36, 'completed': 35, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 1, 'active': 0, 'wait_max_ms': 254.9414919994888, 'total_max_ms': 354.77251799966325}
+audio_preprocessing normalize_ms=0.170 resample_ms=2.314 mel_ms=11.132
+audio_model device=isolated-load channel=4 preprocessing_ms=13.824 inference_ms=18.359
+segment inferred device=isolated-load channel=4 predicted_class=none confidence=0.424
+trend dihitung device=isolated-load channel=4 slope=0.0000 significant=False
+audio_stages device=isolated-load channel=4 durations={'model_total_ms': 32.44599099980405, 'registry_ms': 5.402189999585971, 'persist_ms': 4.332411000177672, 'trend_ms': 7.460971000000427, 'alert_ms': 2.078826999422745}
+audio_job status=completed reason=processed device=isolated-load channel=4 wait_ms=170.200 processing_ms=52.153 total_ms=222.353 stats={'received': 36, 'accepted': 36, 'completed': 36, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 0, 'active': 0, 'wait_max_ms': 254.9414919994888, 'total_max_ms': 354.77251799966325}
+audio_segment_ready device=isolated-load channel=1 accepted=True
+audio_segment_ready device=isolated-load channel=2 accepted=True
+audio_segment_ready device=isolated-load channel=3 accepted=True
+audio_segment_ready device=isolated-load channel=4 accepted=True
+audio_receive device=isolated-load chunks=800 gaps=0 invalid=0 decode_mean_ms=0.160 assemble_mean_ms=1.092 receive_max_ms=2.848
+audio_preprocessing normalize_ms=1.035 resample_ms=7.690 mel_ms=10.445
+audio_model device=isolated-load channel=1 preprocessing_ms=19.331 inference_ms=18.915
+segment inferred device=isolated-load channel=1 predicted_class=none confidence=0.424
+trend dihitung device=isolated-load channel=1 slope=0.0000 significant=False
+audio_stages device=isolated-load channel=1 durations={'model_total_ms': 38.51300099995569, 'registry_ms': 9.646855000028154, 'persist_ms': 5.575975000283506, 'trend_ms': 7.522210999923118, 'alert_ms': 2.066022000690282}
+audio_job status=completed reason=processed device=isolated-load channel=1 wait_ms=0.574 processing_ms=63.778 total_ms=64.352 stats={'received': 40, 'accepted': 40, 'completed': 37, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 3, 'active': 0, 'wait_max_ms': 254.9414919994888, 'total_max_ms': 354.77251799966325}
+audio_preprocessing normalize_ms=0.216 resample_ms=2.189 mel_ms=10.126
+audio_model device=isolated-load channel=2 preprocessing_ms=12.692 inference_ms=14.898
+segment inferred device=isolated-load channel=2 predicted_class=none confidence=0.424
+trend dihitung device=isolated-load channel=2 slope=0.0000 significant=False
+audio_stages device=isolated-load channel=2 durations={'model_total_ms': 27.879064000444487, 'registry_ms': 5.978390999189287, 'persist_ms': 4.986635000022943, 'trend_ms': 6.718212000123458, 'alert_ms': 2.433594000649464}
+audio_job status=completed reason=processed device=isolated-load channel=2 wait_ms=61.427 processing_ms=48.430 total_ms=109.857 stats={'received': 40, 'accepted': 40, 'completed': 38, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 2, 'active': 0, 'wait_max_ms': 254.9414919994888, 'total_max_ms': 354.77251799966325}
+audio_preprocessing normalize_ms=0.190 resample_ms=2.435 mel_ms=10.681
+audio_model device=isolated-load channel=3 preprocessing_ms=13.457 inference_ms=19.567
+segment inferred device=isolated-load channel=3 predicted_class=none confidence=0.424
+trend dihitung device=isolated-load channel=3 slope=0.0000 significant=False
+audio_stages device=isolated-load channel=3 durations={'model_total_ms': 33.297626000603486, 'registry_ms': 5.893874000321375, 'persist_ms': 5.2007379999849945, 'trend_ms': 8.390410000174597, 'alert_ms': 1.8524430006436887}
+audio_job status=completed reason=processed device=isolated-load channel=3 wait_ms=107.829 processing_ms=55.079 total_ms=162.908 stats={'received': 40, 'accepted': 40, 'completed': 39, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 1, 'active': 0, 'wait_max_ms': 254.9414919994888, 'total_max_ms': 354.77251799966325}
+audio_preprocessing normalize_ms=0.163 resample_ms=2.222 mel_ms=10.026
+audio_model device=isolated-load channel=4 preprocessing_ms=12.573 inference_ms=19.834
+segment inferred device=isolated-load channel=4 predicted_class=none confidence=0.424
+trend dihitung device=isolated-load channel=4 slope=0.0000 significant=False
+audio_stages device=isolated-load channel=4 durations={'model_total_ms': 32.687875000192435, 'registry_ms': 5.568808000134595, 'persist_ms': 4.8275110002578, 'trend_ms': 6.793155999730516, 'alert_ms': 2.195521999965422}
+audio_job status=completed reason=processed device=isolated-load channel=4 wait_ms=160.845 processing_ms=52.526 total_ms=213.371 stats={'received': 40, 'accepted': 40, 'completed': 40, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 0, 'active': 0, 'wait_max_ms': 254.9414919994888, 'total_max_ms': 354.77251799966325}
+audio_segment_ready device=isolated-load channel=1 accepted=True
+audio_segment_ready device=isolated-load channel=2 accepted=True
+audio_segment_ready device=isolated-load channel=3 accepted=True
+audio_segment_ready device=isolated-load channel=4 accepted=True
+audio_receive device=isolated-load chunks=880 gaps=0 invalid=0 decode_mean_ms=0.157 assemble_mean_ms=1.076 receive_max_ms=2.848
+audio_preprocessing normalize_ms=1.960 resample_ms=5.779 mel_ms=11.079
+audio_model device=isolated-load channel=1 preprocessing_ms=19.119 inference_ms=19.118
+segment inferred device=isolated-load channel=1 predicted_class=none confidence=0.424
+trend dihitung device=isolated-load channel=1 slope=0.0000 significant=False
+audio_stages device=isolated-load channel=1 durations={'model_total_ms': 38.51814000063314, 'registry_ms': 9.686770000371325, 'persist_ms': 5.2916770000592805, 'trend_ms': 8.448563999991165, 'alert_ms': 2.63149100010196}
+audio_job status=completed reason=processed device=isolated-load channel=1 wait_ms=0.399 processing_ms=65.093 total_ms=65.492 stats={'received': 44, 'accepted': 44, 'completed': 41, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 3, 'active': 0, 'wait_max_ms': 254.9414919994888, 'total_max_ms': 354.77251799966325}
+audio_preprocessing normalize_ms=0.204 resample_ms=2.517 mel_ms=10.806
+audio_model device=isolated-load channel=2 preprocessing_ms=13.720 inference_ms=21.245
+segment inferred device=isolated-load channel=2 predicted_class=none confidence=0.424
+trend dihitung device=isolated-load channel=2 slope=0.0000 significant=False
+audio_stages device=isolated-load channel=2 durations={'model_total_ms': 35.254123999948206, 'registry_ms': 5.8546309992379975, 'persist_ms': 4.622915000254579, 'trend_ms': 7.287774000360514, 'alert_ms': 2.462039000420191}
+audio_job status=completed reason=processed device=isolated-load channel=2 wait_ms=63.911 processing_ms=55.961 total_ms=119.872 stats={'received': 44, 'accepted': 44, 'completed': 42, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 2, 'active': 0, 'wait_max_ms': 254.9414919994888, 'total_max_ms': 354.77251799966325}
+audio_preprocessing normalize_ms=0.194 resample_ms=2.822 mel_ms=13.531
+audio_model device=isolated-load channel=3 preprocessing_ms=16.735 inference_ms=17.959
+segment inferred device=isolated-load channel=3 predicted_class=none confidence=0.424
+trend dihitung device=isolated-load channel=3 slope=0.0000 significant=False
+audio_stages device=isolated-load channel=3 durations={'model_total_ms': 34.94660499927704, 'registry_ms': 5.891152000003785, 'persist_ms': 4.905677999886393, 'trend_ms': 6.896580000102404, 'alert_ms': 2.1320429996194434}
+audio_job status=completed reason=processed device=isolated-load channel=3 wait_ms=117.239 processing_ms=55.240 total_ms=172.479 stats={'received': 44, 'accepted': 44, 'completed': 43, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 1, 'active': 0, 'wait_max_ms': 254.9414919994888, 'total_max_ms': 354.77251799966325}
+audio_preprocessing normalize_ms=0.213 resample_ms=2.617 mel_ms=13.023
+audio_model device=isolated-load channel=4 preprocessing_ms=16.115 inference_ms=24.964
+segment inferred device=isolated-load channel=4 predicted_class=none confidence=0.424
+trend dihitung device=isolated-load channel=4 slope=0.0000 significant=False
+audio_stages device=isolated-load channel=4 durations={'model_total_ms': 41.41611900013231, 'registry_ms': 6.3260380002247985, 'persist_ms': 5.9397919994808035, 'trend_ms': 7.735234999927343, 'alert_ms': 2.467493000040122}
+audio_job status=completed reason=processed device=isolated-load channel=4 wait_ms=171.312 processing_ms=64.545 total_ms=235.857 stats={'received': 44, 'accepted': 44, 'completed': 44, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 0, 'active': 0, 'wait_max_ms': 254.9414919994888, 'total_max_ms': 354.77251799966325}
+audio_segment_ready device=isolated-load channel=1 accepted=True
+audio_segment_ready device=isolated-load channel=2 accepted=True
+audio_segment_ready device=isolated-load channel=3 accepted=True
+audio_segment_ready device=isolated-load channel=4 accepted=True
+audio_receive device=isolated-load chunks=960 gaps=0 invalid=0 decode_mean_ms=0.156 assemble_mean_ms=1.067 receive_max_ms=2.848
+audio_preprocessing normalize_ms=0.323 resample_ms=5.835 mel_ms=13.255
+audio_model device=isolated-load channel=1 preprocessing_ms=19.708 inference_ms=27.939
+segment inferred device=isolated-load channel=1 predicted_class=none confidence=0.424
+trend dihitung device=isolated-load channel=1 slope=0.0000 significant=False
+audio_stages device=isolated-load channel=1 durations={'model_total_ms': 47.98037900036434, 'registry_ms': 9.481475000029604, 'persist_ms': 4.734054999971704, 'trend_ms': 6.781529000363662, 'alert_ms': 2.0924919999742997}
+audio_job status=completed reason=processed device=isolated-load channel=1 wait_ms=2.495 processing_ms=71.559 total_ms=74.054 stats={'received': 48, 'accepted': 48, 'completed': 45, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 3, 'active': 0, 'wait_max_ms': 254.9414919994888, 'total_max_ms': 354.77251799966325}
+audio_preprocessing normalize_ms=0.293 resample_ms=3.331 mel_ms=17.698
+audio_model device=isolated-load channel=2 preprocessing_ms=21.593 inference_ms=18.901
+segment inferred device=isolated-load channel=2 predicted_class=none confidence=0.424
+trend dihitung device=isolated-load channel=2 slope=0.0000 significant=False
+audio_stages device=isolated-load channel=2 durations={'model_total_ms': 40.80142299972067, 'registry_ms': 6.310785000096075, 'persist_ms': 5.369139999856998, 'trend_ms': 8.977485000286833, 'alert_ms': 2.608365999549278}
+audio_job status=completed reason=processed device=isolated-load channel=2 wait_ms=71.904 processing_ms=64.591 total_ms=136.495 stats={'received': 48, 'accepted': 48, 'completed': 46, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 2, 'active': 0, 'wait_max_ms': 254.9414919994888, 'total_max_ms': 354.77251799966325}
+audio_preprocessing normalize_ms=0.211 resample_ms=2.521 mel_ms=10.294
+audio_model device=isolated-load channel=3 preprocessing_ms=13.215 inference_ms=13.702
+segment inferred device=isolated-load channel=3 predicted_class=none confidence=0.424
+trend dihitung device=isolated-load channel=3 slope=0.0000 significant=False
+audio_stages device=isolated-load channel=3 durations={'model_total_ms': 27.11691799959226, 'registry_ms': 6.031869000253209, 'persist_ms': 5.0972930002899375, 'trend_ms': 6.864072000098531, 'alert_ms': 1.8859419997170335}
+audio_job status=completed reason=processed device=isolated-load channel=3 wait_ms=133.974 processing_ms=47.421 total_ms=181.395 stats={'received': 48, 'accepted': 48, 'completed': 47, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 1, 'active': 0, 'wait_max_ms': 254.9414919994888, 'total_max_ms': 354.77251799966325}
+audio_preprocessing normalize_ms=0.225 resample_ms=2.684 mel_ms=11.456
+audio_model device=isolated-load channel=4 preprocessing_ms=14.592 inference_ms=17.127
+segment inferred device=isolated-load channel=4 predicted_class=none confidence=0.424
+trend dihitung device=isolated-load channel=4 slope=0.0000 significant=False
+audio_stages device=isolated-load channel=4 durations={'model_total_ms': 31.985292000172194, 'registry_ms': 5.860166999809735, 'persist_ms': 4.9182840002686135, 'trend_ms': 7.4503890000414685, 'alert_ms': 2.3294120001082774}
+audio_job status=completed reason=processed device=isolated-load channel=4 wait_ms=179.531 processing_ms=53.018 total_ms=232.549 stats={'received': 48, 'accepted': 48, 'completed': 48, 'failed': 0, 'rejected': 0, 'cancelled': 0, 'high_water': 3, 'queued': 0, 'active': 0, 'wait_max_ms': 254.9414919994888, 'total_max_ms': 354.77251799966325}
+audio_partial_cancel reason=disconnect device=isolated-load discarded_samples=0
+127.0.0.1 - - [28/Oct/2026 09:13:53] "GET /ws/audio HTTP/1.1" 200 -

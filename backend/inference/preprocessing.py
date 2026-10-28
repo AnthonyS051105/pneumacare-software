@@ -16,11 +16,16 @@ ini ada di caller (lihat `ingestion/audio_segment_buffer.py` — akumulasi di sa
 rate asli, BUKAN 22000 Hz).
 """
 
+import logging
+from time import monotonic
+
 import numpy as np
 import scipy.signal
 import torch
 
 from ai_reference.model import FFT2MelSpectrogram
+
+logger = logging.getLogger(__name__)
 
 TARGET_SAMPLE_RATE = 22000
 SEGMENT_DURATION_S = 5
@@ -94,8 +99,15 @@ def preprocess_segment(pcm_samples: list[int], source_sample_rate: int) -> torch
     siap-inference. Menggabungkan seluruh langkah di atas sesuai urutan
     `process_wav_to_segments` asli: normalisasi -> resample -> pad/truncate -> mel-spectrogram.
     """
+    started = monotonic()
     float_audio = pcm_int16_to_float32(pcm_samples)
+    normalized = monotonic()
     resampled = resample_to_target_rate(float_audio, source_sample_rate, TARGET_SAMPLE_RATE)
+    resampled_at = monotonic()
     target_length_samples = int(SEGMENT_DURATION_S * TARGET_SAMPLE_RATE)
     padded = pad_or_truncate(resampled, target_length_samples)
-    return segment_to_mel_tensor(padded, TARGET_SAMPLE_RATE)
+    tensor = segment_to_mel_tensor(padded, TARGET_SAMPLE_RATE)
+    logger.info("audio_preprocessing normalize_ms=%.3f resample_ms=%.3f mel_ms=%.3f",
+                (normalized - started) * 1000, (resampled_at - normalized) * 1000,
+                (monotonic() - resampled_at) * 1000)
+    return tensor

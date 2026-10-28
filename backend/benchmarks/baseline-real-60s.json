@@ -1,0 +1,33 @@
+{
+  "mode": "baseline",
+  "model": "real",
+  "slow_seconds": 0,
+  "duration_s": 60,
+  "sent": 960,
+  "saved": 48,
+  "expected_segments": 48,
+  "sent_chunks_per_s": 16.0,
+  "drain_s": 2.5191000531776808e-05,
+  "worker": {},
+  "receive": {},
+  "handle_ms": {
+    "p50": 43.027642000197375,
+    "p95": 67.11300114975528,
+    "max": 76.14468099927763
+  },
+  "send_ms": {
+    "p50": 0.678581499869324,
+    "p95": 4.719309149641049,
+    "max": 7.9038389994821046
+  },
+  "pacing_lag_ms": {
+    "p50": 0.14564499997504754,
+    "p95": 0.29583954960799,
+    "max": 0.9596370000508614
+  },
+  "cpu": "x86_64",
+  "threads": 12,
+  "torch": "2.13.0+cpu",
+  "cuda": false,
+  "checkpoint_sha256": "46fb066892e65f482510e09a35cc59b96f026b55e0e8740bd20a7b757f4a8e07"
+}

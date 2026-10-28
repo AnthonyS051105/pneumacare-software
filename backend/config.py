@@ -65,6 +65,13 @@ class Config:
     # ✅ Durasi segmen audio Model A — 5 detik, dikoreksi dari asumsi awal 10 detik
     # (terverifikasi dari ai_reference/model.py, INTEGRATION_CONTRACT.md §4.1).
     AUDIO_SEGMENT_DURATION_MS = 5_000
+    # Eight waiting segments = two 4-channel bursts; reject newest on overload.
+    # At 16 kHz: 1.28 MB queued PCM + 160 KB active (compact immutable int16).
+    AUDIO_QUEUE_CAPACITY = int(os.environ.get("AUDIO_QUEUE_CAPACITY", 8))
+    AUDIO_QUEUE_MAX_WAIT_SECONDS = float(os.environ.get("AUDIO_QUEUE_MAX_WAIT_SECONDS", 10))
+    AUDIO_MAX_DEVICES = 8
+    # flask-sock/simple-websocket cap before JSON parsing (max 2s @ 48 kHz).
+    SOCK_SERVER_OPTIONS = {"max_message_size": 260000}
 
     # ⚠️ Nilai diusulkan di SRS_SOFTWARE.md FR-SW-004, belum divalidasi tim — timeout heartbeat
     # MQTT status sebelum device ditandai offline.

@@ -1,0 +1,52 @@
+{
+  "mode": "worker",
+  "model": "mock",
+  "slow_seconds": 4.0,
+  "duration_s": 30,
+  "sent": 480,
+  "saved": 9,
+  "expected_segments": 24,
+  "sent_chunks_per_s": 16.0,
+  "drain_s": 10.968298949999735,
+  "worker": {
+    "received": 24,
+    "accepted": 21,
+    "completed": 9,
+    "failed": 0,
+    "rejected": 3,
+    "cancelled": 12,
+    "high_water": 8,
+    "queued": 0,
+    "active": 0,
+    "wait_max_ms": 12186.171721000392,
+    "total_max_ms": 13164.82724800062
+  },
+  "receive": {
+    "chunks": 480,
+    "gaps": 0,
+    "invalid": 0,
+    "decode_ms": 51.99859700041998,
+    "assemble_ms": 365.6488169954173,
+    "receive_max_ms": 3.298093999546836
+  },
+  "handle_ms": {
+    "p50": 4023.550138000246,
+    "p95": 4028.516717600178,
+    "max": 4030.3050760003316
+  },
+  "send_ms": {
+    "p50": 0.9349104998364055,
+    "p95": 2.685597750360101,
+    "max": 6.654677999904379
+  },
+  "pacing_lag_ms": {
+    "p50": 0.14809549929850618,
+    "p95": 0.25197519958055625,
+    "max": 0.5285489996822434
+  },
+  "cpu": "x86_64",
+  "threads": 12,
+  "torch": "2.13.0+cpu",
+  "cuda": false,
+  "checkpoint_sha256": null
+}

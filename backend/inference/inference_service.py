@@ -14,6 +14,10 @@ sejak Fase 1 (0-1) dan `TREND_SIGNIFICANCE_THRESHOLD_DEFAULT` di config.py.
 """
 
 import uuid
+import logging
+from time import monotonic
+
+logger = logging.getLogger(__name__)
 
 import torch
 import torch.nn.functional as F
@@ -40,15 +44,20 @@ def run_inference(
     INTEGRATION_CONTRACT.md §4.1 (field `wheeze_crackle`, bukan lagi skema lama
     `prediction.wheeze`/`prediction.crackle` dua-flag independen).
     """
+    started = monotonic()
     tensor_x = preprocess_segment(pcm_samples, source_sample_rate)
 
     device = next(model.parameters()).device
     tensor_x = tensor_x.to(device)
 
+    preprocessing_ms = (monotonic() - started) * 1000
+    started = monotonic()
     with torch.no_grad():
         logits = model(tensor_x)
         probabilities = F.softmax(logits, dim=1).cpu().numpy()[0]
 
+    logger.info("audio_model device=%s channel=%s preprocessing_ms=%.3f inference_ms=%.3f",
+                device_id, channel_id, preprocessing_ms, (monotonic() - started) * 1000)
     predicted_idx = int(probabilities.argmax())
     predicted_class = CLASS_NAMES[predicted_idx]
     confidence = float(probabilities[predicted_idx])  # fraksi 0-1, lihat docstring modul
