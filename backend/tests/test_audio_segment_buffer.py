@@ -34,7 +34,7 @@ def test_segment_emitted_only_when_duration_reached():
     assert segment.channel_id == 1
     assert segment.segment_start_ms == 0
     assert segment.segment_end_ms == 5_000
-    assert segment.pcm_samples == [1, 2, 3] * 5
+    assert list(segment.pcm_samples) == [1, 2, 3] * 5
     assert segment.sample_rate == SAMPLE_RATE
 
 
@@ -99,5 +99,64 @@ def test_sample_rate_captured_from_first_chunk_of_segment():
     # normal — tapi buffer tetap pakai sample_rate dari chunk PERTAMA segmen ini)
     segment, _ = buf.add_chunk("dev1", 1, 1000, 1, 1000, [1], sample_rate=8_000)
 
-    assert segment is not None
-    assert segment.sample_rate == 16_000
+    assert segment is None  # a format change must discard the partial segment
+
+
+def test_gap_discards_partial_instead_of_joining_across_missing_audio():
+    buf = AudioSegmentBuffer(segment_duration_ms=2000)
+    buf.add_chunk('d', 1, 0, 0, 1000, [1], SAMPLE_RATE)
+    segment, gap = buf.add_chunk('d', 1, 2000, 2, 1000, [2], SAMPLE_RATE)
+    assert gap is not None
+    assert segment is None
+    segment, _ = buf.add_chunk('d', 1, 3000, 3, 1000, [3], SAMPLE_RATE)
+    assert list(segment.pcm_samples) == [2, 3]
+
+
+def test_sample_index_exposes_ring_drop_even_with_sequential_message_numbers():
+    buf = AudioSegmentBuffer(segment_duration_ms=2000)
+    buf.add_chunk('d', 1, 0, 0, 1000, [1], SAMPLE_RATE, sample_start=0, stream_id='boot')
+    segment, gap = buf.add_chunk('d', 1, 1000, 1, 1000, [2], SAMPLE_RATE,
+                                 sample_start=50, stream_id='boot')
+    assert segment is None
+    assert gap.reason == 'sample_gap'
+    assert gap.lost_samples == 49
+
+
+def test_stream_switch_discards_partial():
+    buf = AudioSegmentBuffer(segment_duration_ms=2000)
+    buf.add_chunk('d', 1, 0, 0, 1000, [1], SAMPLE_RATE, sample_start=0, stream_id='a')
+    segment, gap = buf.add_chunk('d', 1, 1000, 1, 1000, [2], SAMPLE_RATE,
+                                 sample_start=1, stream_id='b')
+    assert segment is None
+    assert gap.reason == 'stream_change'
+
+
+def test_two_second_chunks_split_into_exact_five_second_segments():
+    import numpy as np
+    buf = AudioSegmentBuffer()
+    for seq in range(2):
+        segment, gap = buf.add_chunk('d', 1, seq*2000, seq, 2000, [seq]*32000, 16000,
+                                     sample_start=seq*32000, stream_id='a')
+        assert segment is None and gap is None
+    first, gap = buf.add_chunk('d', 1, 4000, 2, 2000, [2]*32000, 16000,
+                               sample_start=64000, stream_id='a')
+    assert gap is None
+    assert len(first.pcm_samples) == 80000
+    assert first.segment_end_ms == 5000
+    assert not first.pcm_samples.flags.writeable
+    for seq in range(3,5):
+        second, gap = buf.add_chunk('d', 1, seq*2000, seq, 2000, [seq]*32000, 16000,
+                                    sample_start=seq*32000, stream_id='a')
+    assert len(second.pcm_samples) == 80000
+    assert second.segment_start_ms == 5000
+    assert list(second.pcm_samples[:16000]) == [2]*16000
+    assert np.array_equal(first.pcm_samples[-16000:], [2]*16000)
+
+
+def test_ntp_jump_does_not_break_sample_index_continuity():
+    buf = AudioSegmentBuffer(segment_duration_ms=2000)
+    buf.add_chunk('d',1,0,0,1000,[1],16000,sample_start=0,stream_id='a')
+    segment, gap = buf.add_chunk('d',1,1700000000000,1,1000,[2],16000,
+                                 sample_start=1,stream_id='a')
+    assert gap is None
+    assert list(segment.pcm_samples) == [1,2]

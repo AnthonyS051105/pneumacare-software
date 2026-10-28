@@ -1,3 +1,6 @@
+import logging
+from time import monotonic
+
 import librosa
 import torch
 from torch import nn
@@ -13,6 +16,8 @@ from transformers import (
     get_cosine_schedule_with_warmup,
 )
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 MODEL_NAME = "MIT/ast-finetuned-audioset-10-10-0.4593"
 MAX_LEN = 512
@@ -168,16 +173,36 @@ class LungSoundClassifier:
         return self.wav_to_ast(audio, sr)
 
     def predict(self, input_data):
-        self.model.eval()
-        x = self.preprocess(input_data).unsqueeze(0)
-        with torch.no_grad():
-            logits = self.model(x)
-        probs = torch.softmax(logits, dim=-1)[0]
-        return {
-            "class" : int(probs.argmax()),
-            "confidence" : float(probs.max()),
-            "probabilities" : probs.tolist()
-        }
+        started = monotonic()
+        preprocessed_at = None
+        input_device = "unknown"
+        status = "error"
+        try:
+            self.model.eval()
+            x = self.preprocess(input_data).unsqueeze(0)
+            preprocessed_at = monotonic()
+            input_device = str(x.device)
+            with torch.no_grad():
+                logits = self.model(x)
+            probs = torch.softmax(logits, dim=-1)[0]
+            # Preserve calculations and serialization. Output conversion also waits
+            # for accelerator work, so forward_output_ms is not just GPU enqueue time.
+            result = {
+                "class" : int(probs.argmax()),
+                "confidence" : float(probs.max()),
+                "probabilities" : probs.tolist()
+            }
+            status = "ok"
+            return result
+        finally:
+            ended = monotonic()
+            preprocessing_ms = ((preprocessed_at if preprocessed_at is not None else ended)
+                                - started) * 1000
+            forward_output_ms = ((ended - preprocessed_at) * 1000
+                                 if preprocessed_at is not None else 0.0)
+            logger.info("ml_prediction status=%s input_device=%s preprocessing_ms=%.3f "
+                        "forward_output_ms=%.3f total_ms=%.3f", status, input_device,
+                        preprocessing_ms, forward_output_ms, (ended - started) * 1000)
 
     def wav_to_ast(self, y, sr=16000):
         out = self.extractor(y, sampling_rate=sr, return_tensors="pt")

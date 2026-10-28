@@ -52,7 +52,7 @@ def detect_cycle_slices(
         )
         return _empty("unsupported_sample_rate")
 
-    if not pcm_samples:
+    if len(pcm_samples) == 0:
         return _empty("no_cycles")
 
     x = np.asarray(pcm_samples, dtype=np.float64) / _PCM_INT16_SCALE

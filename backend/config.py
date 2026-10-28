@@ -50,6 +50,13 @@ class Config:
 
     # ✅ Durasi segmen audio 5 detik sesuai INTEGRATION_CONTRACT.md §4.1.
     AUDIO_SEGMENT_DURATION_MS = 5_000
+    # One FIFO worker; eight queued 5s/16k int16 segments use ~1.28 MB PCM.
+    AUDIO_QUEUE_CAPACITY = int(os.environ.get("AUDIO_QUEUE_CAPACITY", "8"))
+    AUDIO_QUEUE_MAX_WAIT_SECONDS = float(os.environ.get("AUDIO_QUEUE_MAX_WAIT_SECONDS", "10"))
+    AUDIO_MAX_DEVICES = int(os.environ.get("AUDIO_MAX_DEVICES", "8"))
+    # Clean up half-open sockets after an ESP reboot; client pings alone cannot
+    # clean a server socket whose client disappeared without FIN.
+    SOCK_SERVER_OPTIONS = {"max_message_size": 260000, "ping_interval": 20}
 
     # ⚠️ Nilai diusulkan di SRS_SOFTWARE.md FR-SW-004, belum divalidasi tim — timeout heartbeat
     # MQTT status sebelum device ditandai offline.

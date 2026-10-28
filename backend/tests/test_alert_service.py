@@ -91,7 +91,8 @@ def test_significant_trend_plus_persistence_escalates_to_level_3(app):
 
         trend_result = TrendResult(window_start=now - timedelta(minutes=2), window_end=now, slope=0.1, significant=True)
         result = evaluate_and_save_alert(
-            app, "pneumacare-a1b2", VitalReading(hr=None, spo2=None, rr=None), trend_result=trend_result
+            app, "pneumacare-a1b2", VitalReading(hr=None, spo2=None, rr=None), trend_result=trend_result,
+            trend_already_saved=False,
         )
 
         assert result is not None
@@ -141,3 +142,31 @@ def test_condition_recurring_after_ack_and_cooldown_creates_new_alert(app):
 
         assert again is not None
         assert db.session.query(Alert).count() == 2
+
+
+def test_current_persisted_trend_counts_once_for_three_evaluation_persistence(app):
+    _seed_device_with_patient(app)
+    now = datetime.now(timezone.utc)
+    with app.app_context():
+        db.session.add(Threshold(patient_id='patient-1', trend_significance_threshold=.05))
+        for i, significant in enumerate((False, True, True)):
+            db.session.add(TrendEvent(
+                id=f'persisted-{i}', device_id='pneumacare-a1b2',
+                window_start=now-timedelta(seconds=30-i*5),
+                window_end=now-timedelta(seconds=10-i*5),
+                slope=.1 if significant else 0, significant=significant))
+        db.session.commit()
+        current = TrendResult(window_start=now-timedelta(seconds=20), window_end=now,
+                              slope=.1, significant=True)
+        result = evaluate_and_save_alert(app, 'pneumacare-a1b2', VitalReading(None, None, None), current)
+        assert result is not None
+        assert result.level == 2  # only TWO significant evaluations, not three
+        db.session.add(TrendEvent(id='persisted-3', device_id='pneumacare-a1b2',
+                                 window_start=now-timedelta(seconds=15),
+                                 window_end=now+timedelta(seconds=5), slope=.1, significant=True))
+        db.session.commit()
+        third = TrendResult(window_start=now-timedelta(seconds=15),
+                            window_end=now+timedelta(seconds=5), slope=.1, significant=True)
+        result = evaluate_and_save_alert(app, 'pneumacare-a1b2', VitalReading(None, None, None), third)
+        assert result is not None
+        assert result.level == 3

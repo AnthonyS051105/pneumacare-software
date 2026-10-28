@@ -55,6 +55,7 @@ def evaluate_and_save_alert(
     device_id: str,
     vitals: VitalReading,
     trend_result: TrendResult | None,
+    trend_already_saved: bool = True,
 ) -> Alert | None:
     """Entry point I/O utama — query threshold/histori device, evaluasi, simpan Alert.
 
@@ -62,6 +63,9 @@ def evaluate_and_save_alert(
     (device baru/belum di-pairing — lihat Device.patient_id di patient_routes.py
     /device/repair) ATAU bila evaluate_alert() sendiri mengembalikan None (tidak ada
     kondisi yang memicu alert).
+
+    `trend_already_saved=True` matches ingestion: the current event is already
+    included in history. Use False only for an unsaved candidate evaluation.
     """
     cfg = app.config
 
@@ -77,7 +81,9 @@ def evaluate_and_save_alert(
     )
     min_consecutive = cfg["TREND_PERSISTENCE_MIN_CONSECUTIVE"]
     recent_flags = _recent_trend_significant_flags(device_id, min_consecutive)
-    if trend_result is not None:
+    # Ingestion calls after compute_and_save_trend committed the current event.
+    # Append only when a caller explicitly evaluates an event not saved yet.
+    if trend_result is not None and not trend_already_saved:
         recent_flags = recent_flags[-(min_consecutive - 1) :] + [trend_result.significant]
 
     result = evaluate_alert(

@@ -1,4 +1,5 @@
 import io
+import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -9,6 +10,10 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 
 from modules.model import LungSoundClassifier, RespiratoryAST
+
+# Include model stage timings when launched directly or through uvicorn.
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 BASE_DIR = Path(__file__).resolve().parent
 

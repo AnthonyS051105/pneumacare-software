@@ -69,7 +69,7 @@ berisi satu chunk audio:
 ```
 
 - `pcm_base64` adalah PCM **int16 little-endian**, mono.
-- `seq_no` dipakai untuk mendeteksi chunk yang hilang; gap hanya dicatat di log.
+- `seq_no` dipakai untuk mendeteksi chunk yang hilang; gap membatalkan segmen parsial; sample_start/stream_id juga memantau loss ring.
 - Jika `DEVICE_AUTH_TOKEN` diisi, backend mewajibkan header
   `Authorization: Bearer <token>`.
 
@@ -108,16 +108,14 @@ mengirim multipart ke `POST /predict`. ML service melakukan resample ke 16 kHz d
 `fix_length` ke 5 detik:
 
 - audio lebih dari 5 detik di-center-crop;
-- audio kurang dari 2,5 detik di-tile, lalu sisa kekurangannya di-zero-pad;
+- audio kurang dari 2,5 detik di-tile hingga cukup, lalu di-center-crop bila berlebih;
 - audio 2,5-5 detik di-zero-pad di ujung.
 
 Karena durasi siklus dibatasi 1,25-5,5 detik, potongan yang dikirim tetap dapat
 diproses model. Respons berisi indeks kelas (`0=normal`, `1=abnormal`), confidence,
 dan probabilitas. Backend memetakan hasilnya ke `normal`/`abnormal`.
 
-Jika ML service gagal, backend otomatis memakai `mock_inference` agar pipeline tidak
-berhenti. Kolom `model_version` membedakan hasil model nyata (`ast_model_v1.0`) dari
-mock (`mock_v3`).
+Jika ML service yang dikonfigurasi gagal, job gagal eksplisit dan tidak menyimpan hasil mock. Mock (`mock_v3`) hanya dipilih eksplisit dengan ML_SERVICE_URL kosong.
 
 ### 1.5 Penyimpanan hasil
 

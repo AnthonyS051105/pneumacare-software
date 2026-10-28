@@ -1,9 +1,17 @@
 import io
+import math
 import wave
 import numpy as np
 import requests
 
 CLASS_NAMES = ["normal", "abnormal"]
+# Serialization tolerance for float32 softmax output; not a clinical threshold.
+_PROBABILITY_TOLERANCE = 1e-5
+
+
+def _is_probability(value) -> bool:
+    return (type(value) in (int, float) and 0 <= value <= 1
+            and math.isfinite(value))
 
 
 class MLServiceError(RuntimeError):
@@ -49,16 +57,26 @@ def classify_segment(
     confidence = payload.get("confidence")
     probabilities = payload.get("probabilities")
 
-    if index not in (0, 1):
+    if type(index) is not int or index not in (0, 1):
         raise MLServiceError(f"Index kelas tidak dikenal: {index!r}")
-    if not isinstance(confidence, (int, float)):
+    if not _is_probability(confidence):
         raise MLServiceError(f"Confidence tidak valid: {confidence!r}")
     if (
         not isinstance(probabilities, list)
         or len(probabilities) != len(CLASS_NAMES)
-        or any(not isinstance(value, (int, float)) for value in probabilities)
+        or any(not _is_probability(value) for value in probabilities)
     ):
         raise MLServiceError(f"Probabilitas tidak valid: {probabilities!r}")
+
+    if not math.isclose(sum(probabilities), 1.0, rel_tol=0,
+                        abs_tol=_PROBABILITY_TOLERANCE):
+        raise MLServiceError("Probabilitas ML harus berjumlah satu")
+    # PyTorch argmax chooses the first class in an exact tie.
+    if index != max(range(len(CLASS_NAMES)), key=probabilities.__getitem__):
+        raise MLServiceError("Index kelas ML tidak sesuai argmax probabilitas")
+    if not math.isclose(confidence, probabilities[index], rel_tol=0,
+                        abs_tol=_PROBABILITY_TOLERANCE):
+        raise MLServiceError("Confidence ML tidak sesuai probabilitas kelas terpilih")
 
     return {
         "predicted_class": CLASS_NAMES[index],
