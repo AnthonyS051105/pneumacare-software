@@ -74,3 +74,15 @@ ml-service/.pytest_cache/
 
 # Active runtime logs; retain versioned summaries separately.
 backend/benchmarks/live-*.log
+
+# Internal documentation stays local; README.md files remain publishable.
+*.md
+*.MD
+*.markdown
+*.mdx
+!README.md
+
+# Local model artifacts, including checkpoints delivered with archive suffixes.
+*.ckpt.zip
+ml-service/modules/weights/*
+!ml-service/modules/weights/.gitkeep
