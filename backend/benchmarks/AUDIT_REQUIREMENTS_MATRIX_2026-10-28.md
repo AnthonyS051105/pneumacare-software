@@ -1,3 +1,5 @@
+> **Pembaruan:** lima blocker yang disetujui Tony sudah diperbaiki dan369tes lulus. Lihat [FIX_FIVE_AUDIT_2026-10-28.md](FIX_FIVE_AUDIT_2026-10-28.md). Isi di bawah adalah bukti audit sebelum perbaikan, bukan status kelima bug saat ini.
+
 # Matriks audit requirement feat/ai-integration — 28 Oktober 2026
 
 ## Kesimpulan

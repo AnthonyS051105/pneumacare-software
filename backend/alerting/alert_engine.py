@@ -215,7 +215,9 @@ def evaluate_alert(
     """
     triggers = evaluate_vitals(vitals, thresholds, level1_margin_pct, level1_margin_spo2_abs)
 
-    if trend_result is not None and trend_result.significant:
+    # Recheck against the active threshold: a candidate may have been computed
+    # before the patient's setting changed. Trigger metadata and decision agree.
+    if trend_result is not None and trend_result.slope > trend_significance_threshold:
         triggers.append(make_trend_trigger(trend_result, trend_significance_threshold))
 
     if not triggers:

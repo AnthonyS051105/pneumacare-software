@@ -31,6 +31,7 @@ from backend.models import db
 from backend.models.classification import ReadingClassification
 from backend.models.respiratory_cycle import RespiratoryCycle
 from backend.models.vital import ReadingVital
+from backend.vitals.alert_readings import vitals_for_alert
 from backend.trend_analysis.trend_service import compute_and_save_trend
 
 logger = logging.getLogger(__name__)
@@ -249,11 +250,8 @@ def _handle_segment(segment: Segment, job=None) -> None:
             .order_by(ReadingVital.timestamp.desc())
             .first()
         )
-        vitals = VitalReading(
-            hr=latest_vital.hr if latest_vital is not None else None,
-            spo2=latest_vital.spo2 if latest_vital is not None else None,
-            rr=latest_vital.rr if latest_vital is not None else None,
-        )
+        vitals = vitals_for_alert(
+            latest_vital, app.config['VITAL_ALERT_MAX_AGE_SECONDS'])
         if job is not None:
             job.check_cancelled()
         evaluate_and_save_alert(app, device_id=segment.device_id, vitals=vitals, trend_result=trend_result)

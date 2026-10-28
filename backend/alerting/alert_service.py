@@ -15,6 +15,7 @@ from backend.models.device import Device
 from backend.models.threshold import Threshold
 from backend.models.trend import TrendEvent
 from backend.trend_analysis.trend_detector import TrendResult
+from backend.trend_analysis.threshold_service import trend_threshold_for_patient
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +29,6 @@ def _thresholds_for_patient(patient_id: str) -> Thresholds:
     return Thresholds(
         hr_min=row.hr_min, hr_max=row.hr_max, spo2_min=row.spo2_min, rr_min=row.rr_min, rr_max=row.rr_max
     )
-
-
-def _trend_significance_threshold_for_patient(patient_id: str, default: float) -> float:
-    row = db.session.get(Threshold, patient_id)
-    if row is not None and row.trend_significance_threshold is not None:
-        return row.trend_significance_threshold
-    return default
 
 
 def _recent_trend_significant_flags(device_id: str, min_consecutive: int) -> list[bool]:
@@ -76,7 +70,7 @@ def evaluate_and_save_alert(
 
     patient_id = device.patient_id
     thresholds = _thresholds_for_patient(patient_id)
-    significance_threshold = _trend_significance_threshold_for_patient(
+    significance_threshold = trend_threshold_for_patient(
         patient_id, cfg["TREND_SIGNIFICANCE_THRESHOLD_DEFAULT"]
     )
     min_consecutive = cfg["TREND_PERSISTENCE_MIN_CONSECUTIVE"]
@@ -84,7 +78,7 @@ def evaluate_and_save_alert(
     # Ingestion calls after compute_and_save_trend committed the current event.
     # Append only when a caller explicitly evaluates an event not saved yet.
     if trend_result is not None and not trend_already_saved:
-        recent_flags = recent_flags[-(min_consecutive - 1) :] + [trend_result.significant]
+        recent_flags = recent_flags[-(min_consecutive - 1) :] + [trend_result.slope > significance_threshold]
 
     result = evaluate_alert(
         vitals=vitals,

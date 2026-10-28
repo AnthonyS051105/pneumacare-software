@@ -75,6 +75,17 @@ class Config:
     # "abnormal_rising": probabilitas kelas "abnormal" naik bertahap untuk demo trend analysis.
     MOCK_INFERENCE_SCENARIO = os.environ.get("MOCK_INFERENCE_SCENARIO", "random")
 
+    # Operational freshness budget: three normal 15-second PPG windows.
+    # This is not a clinical threshold; old values remain in history only.
+    VITAL_ALERT_MAX_AGE_SECONDS = float(os.environ.get("VITAL_ALERT_MAX_AGE_SECONDS", "45"))
+    # Transport/ADC limits, not clinical thresholds. Keep compatibility with
+    # firmware batch100 and legacy test/simulator batches up to2000 samples.
+    PPG_MAX_BATCH_SAMPLES = 2000
+    PPG_MAX_SAMPLE_RATE_HZ = 1000
+    PPG_MAX_SAMPLE_VALUE = 4294967295
+    MQTT_MAX_PAYLOAD_BYTES = 262144
+
+
     # --- Vitals / PPG (Fase 2) ---
 
     # ⚠️ Sample rate PPG mengikuti contoh di INTEGRATION_CONTRACT.md §3.3 (BELUM final,

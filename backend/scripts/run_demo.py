@@ -7,7 +7,6 @@ import argparse
 import json
 from pathlib import Path
 import os
-import sqlite3
 import urllib.request
 
 from dotenv import load_dotenv
@@ -25,13 +24,21 @@ def main():
     if args.env_file:
         load_dotenv(args.env_file, override=False)
     database = args.database.resolve()
-    if database.exists():
-        with sqlite3.connect(f'file:{database}?mode=ro', uri=True) as conn:
-            columns = {r[1] for r in conn.execute('pragma table_info(readings_classification)')}
-        if columns and 'predicted_class' not in columns:
-            parser.error('database uses old four-class schema; use a separate demo database')
     # Deliberately override DATABASE_URL loaded from a different checkout.
     os.environ['DATABASE_URL'] = 'sqlite:///' + str(database)
+    # Readiness checks use the same non-mutating schema guard as server startup.
+    from flask import Flask
+    from backend.models import db
+    from backend.database_schema import assert_compatible_schema
+    schema_app = Flask(__name__)
+    schema_app.config['SQLALCHEMY_DATABASE_URI'] = os.environ['DATABASE_URL']
+    db.init_app(schema_app)
+    with schema_app.app_context():
+        try:
+            assert_compatible_schema()
+        finally:
+            db.session.remove()
+            db.engine.dispose()
     url = os.environ.get('ML_SERVICE_URL', 'http://127.0.0.1:8000')
     loaded = False
     if url:
@@ -73,7 +80,8 @@ def main():
             return original_receive(ws, *pos, **kw)
         Base.receive = quickack_receive
         print('EXPERIMENT tcp_quickack=per_recv; no firmware/protocol change.', flush=True)
-    from backend.app import app
+    from backend.app import create_app
+    app = create_app()
     if args.receive_only:
         import logging
         app.extensions['audio_worker'].process = lambda job: logging.getLogger(__name__).info(

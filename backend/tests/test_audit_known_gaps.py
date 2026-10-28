@@ -1,8 +1,4 @@
-"""Reproductions of unresolved audit findings; strict xfails gate merge review.
-
-Run with --runxfail to see the incorrect current behavior as failing assertions.
-These are not approval of the behavior. Fixes should remove the matching xfail.
-"""
+"""Regression tests for the five fixed pre-merge audit findings."""
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -18,7 +14,6 @@ from backend.tests.test_trend_service import _seed_classifications, DEVICE_ID
 from backend.trend_analysis.trend_service import compute_and_save_trend
 
 
-@pytest.mark.xfail(strict=True, reason='AUDIT-01: trend service ignores patient-configured significance threshold')
 def test_patient_trend_threshold_is_used_for_significance(app):
     _seed_classifications(app, ['normal']*6 + ['abnormal']*6)
     with app.app_context():
@@ -33,7 +28,6 @@ def test_patient_trend_threshold_is_used_for_significance(app):
         assert trend.significant is False
 
 
-@pytest.mark.xfail(strict=True, reason='AUDIT-02: latest acknowledged alert hides older unresolved urgent alert')
 def test_patient_summary_keeps_unresolved_urgent_status(app, client):
     _seed_patient_with_device(app)
     with app.app_context():
@@ -52,7 +46,6 @@ def test_patient_summary_keeps_unresolved_urgent_status(app, client):
     assert response.get_json()['status_label'] == 'urgent'
 
 
-@pytest.mark.xfail(strict=True, reason='AUDIT-03: audio processing bypasses PPG poor-quality alert guard')
 def test_audio_does_not_reuse_poor_quality_ppg_for_alerts(app, monkeypatch):
     import numpy as np
     from backend.ingestion import mqtt_subscriber as mqtt
@@ -77,7 +70,6 @@ def test_audio_does_not_reuse_poor_quality_ppg_for_alerts(app, monkeypatch):
         assert Alert.query.count() == 0  # audio path must preserve the same quality rule
 
 
-@pytest.mark.xfail(strict=True, reason='AUDIT-04: documented create_app startup does not reject incompatible existing DB')
 def test_default_startup_detects_legacy_schema(app, tmp_path):
     import sqlite3
     from backend.app import create_app
@@ -93,7 +85,6 @@ def test_default_startup_detects_legacy_schema(app, tmp_path):
         candidate.extensions['audio_worker'].stop()
 
 
-@pytest.mark.xfail(strict=True, reason='AUDIT-05: malformed but valid JSON escapes MQTT callback')
 def test_mqtt_invalid_message_does_not_escape_callback(app):
     from types import SimpleNamespace
     from backend.ingestion.mqtt_subscriber import create_mqtt_client

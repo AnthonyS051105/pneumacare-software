@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from werkzeug.security import generate_password_hash
 
 from backend.models import db
@@ -39,6 +41,39 @@ def _login_patient(client):
 def test_summary_requires_login(client):
     response = client.get("/api/v1/patient/me/summary")
     assert response.status_code == 401
+
+
+@pytest.mark.parametrize("new_level,new_acknowledged,offline,expected", [
+    (1, True, False, "urgent"), (1, False, False, "urgent"),
+    (2, False, True, "urgent"), (3, True, True, "urgent"),
+])
+def test_summary_keeps_highest_unacknowledged_alert(app, client, new_level, new_acknowledged, offline, expected):
+    _seed_patient_with_device(app)
+    with app.app_context():
+        now = datetime.now(timezone.utc)
+        db.session.get(Device, "pneumacare-a1b2").status = "offline" if offline else "online"
+        db.session.add_all([
+            Alert(id="urgent-open", device_id="pneumacare-a1b2", patient_id="patient-1", level=3,
+                  triggers=[], created_at=now - timedelta(minutes=2), acknowledged=False),
+            Alert(id="newer", device_id="pneumacare-a1b2", patient_id="patient-1", level=new_level,
+                  triggers=[], created_at=now, acknowledged=new_acknowledged),
+        ])
+        db.session.commit()
+    _login_patient(client)
+    body = client.get("/api/v1/patient/me/summary").get_json()
+    assert body["status_label"] == expected
+    assert body["device_connected"] is (not offline)
+
+
+@pytest.mark.parametrize("level,acknowledged,expected", [(1, False, "attention"), (2, False, "attention"), (3, True, "stable")])
+def test_summary_only_unacknowledged_alerts_affect_status(app, client, level, acknowledged, expected):
+    _seed_patient_with_device(app)
+    with app.app_context():
+        db.session.add(Alert(id="single", device_id="pneumacare-a1b2", patient_id="patient-1", level=level,
+                             triggers=[], created_at=datetime.now(timezone.utc), acknowledged=acknowledged))
+        db.session.commit()
+    _login_patient(client)
+    assert client.get("/api/v1/patient/me/summary").get_json()["status_label"] == expected
 
 
 def test_summary_returns_own_data(app, client):

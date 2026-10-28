@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from backend.alerting.alert_engine import VitalReading
 from backend.alerting.alert_service import evaluate_and_save_alert
 from backend.models import db
@@ -16,6 +18,21 @@ def _seed_device_with_patient(app, device_id="pneumacare-a1b2", patient_id="pati
         db.session.add(Patient(id=patient_id, name="Pasien Test"))
         db.session.add(Device(device_id=device_id, status="online", patient_id=patient_id))
         db.session.commit()
+
+
+@pytest.mark.parametrize("threshold,candidate_flag,expected", [(999, True, False), (0.01, False, True)])
+def test_alert_uses_current_patient_threshold_for_candidate(app, threshold, candidate_flag, expected):
+    _seed_device_with_patient(app)
+    with app.app_context():
+        db.session.add(Threshold(patient_id="patient-1", trend_significance_threshold=threshold))
+        db.session.commit()
+        now = datetime.now(timezone.utc)
+        trend = TrendResult(now - timedelta(minutes=1), now, slope=0.1, significant=candidate_flag)
+        result = evaluate_and_save_alert(app, "pneumacare-a1b2", VitalReading(None, None, None), trend,
+                                         trend_already_saved=False)
+        assert (result is not None) is expected
+        if result:
+            assert result.triggers[0]["threshold"] == threshold
 
 
 def test_returns_none_when_device_not_paired_to_patient(app):
