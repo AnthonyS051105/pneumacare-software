@@ -30,6 +30,8 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# contoh konfigurasi ML service (bukan rahasia, aman di-commit)
+!ml-service/.env.example
 
 # vercel
 .vercel
@@ -39,6 +41,7 @@ yarn-error.log*
 next-env.d.ts
 
 # python / flask backend
+__pycache__/
 backend/venv/
 backend/__pycache__/
 backend/**/__pycache__/
@@ -49,12 +52,15 @@ backend/mosquitto/data/
 backend/mosquitto/passwd
 instance/
 backend/instance/
-ai_reference/__pycache__/
 
-# model checkpoint Model A (bisa ratusan MB) — path aktual di-set via env var
-# MODEL_A_CHECKPOINT_PATH (config.py), TIDAK di-commit ke git.
+# ML service (FastAPI)
+ml-service/.venv/
+ml-service/__pycache__/
+ml-service/**/__pycache__/
+ml-service/.pytest_cache/
+
+# file checkpoint model besar (bisa ratusan MB) — tidak di-commit ke git
 *.ckpt
-backend/models_artifacts/
 
 # playwright MCP artifacts
 .playwright-mcp/

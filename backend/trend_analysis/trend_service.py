@@ -9,9 +9,11 @@ import uuid
 
 from backend.models import db
 from backend.models.classification import ReadingClassification
+from backend.models.device import Device
 from backend.models.trend import TrendEvent
 from backend.trend_analysis.rolling_window import ClassificationEvent, compute_rolling_frequency
 from backend.trend_analysis.trend_detector import TrendResult, detect_trend
+from backend.trend_analysis.threshold_service import trend_threshold_for_patient
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +28,9 @@ def compute_and_save_trend(
     app,
     device_id: str,
     channel_id: int,
-    metric: str = "wheeze_frequency",
 ) -> TrendResult | None:
     """Query histori klasifikasi terbaru untuk device+channel ini, hitung rolling
-    frequency + trend, simpan TrendEvent bila ada hasil (>=2 titik rolling window).
+    frequency abnormal + trend, simpan TrendEvent bila ada hasil (>=2 titik rolling window).
 
     Return None (tanpa menyimpan) bila histori belum cukup — sama seperti
     detect_trend() sendiri, caller (websocket_server.py) tidak perlu menangani
@@ -38,7 +39,11 @@ def compute_and_save_trend(
     cfg = app.config
     window_size = cfg["TREND_ROLLING_WINDOW_SIZE"]
     moving_average_window = cfg["TREND_MOVING_AVERAGE_WINDOW"]
-    significance_threshold = cfg["TREND_SIGNIFICANCE_THRESHOLD_DEFAULT"]
+    device = db.session.get(Device, device_id)
+    significance_threshold = trend_threshold_for_patient(
+        device.patient_id if device is not None else None,
+        cfg["TREND_SIGNIFICANCE_THRESHOLD_DEFAULT"],
+    )
 
     lookback = window_size * _HISTORY_LOOKBACK_MULTIPLIER
     rows = (
@@ -51,12 +56,12 @@ def compute_and_save_trend(
     rows.reverse()  # query desc untuk ambil N-terbaru, tapi rolling_window butuh urut lama->baru
 
     events = [
-        ClassificationEvent(timestamp=row.segment_end, wheeze_crackle_class=row.wheeze_crackle_class)
+        ClassificationEvent(timestamp=row.segment_end, predicted_class=row.predicted_class)
         for row in rows
     ]
 
     points = compute_rolling_frequency(events, window_size)
-    trend_result = detect_trend(points, moving_average_window, significance_threshold, metric=metric)
+    trend_result = detect_trend(points, moving_average_window, significance_threshold)
 
     if trend_result is None:
         return None

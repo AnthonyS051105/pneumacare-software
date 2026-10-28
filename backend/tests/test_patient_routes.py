@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from werkzeug.security import generate_password_hash
 
 from backend.models import db
@@ -41,6 +43,39 @@ def test_summary_requires_login(client):
     assert response.status_code == 401
 
 
+@pytest.mark.parametrize("new_level,new_acknowledged,offline,expected", [
+    (1, True, False, "urgent"), (1, False, False, "urgent"),
+    (2, False, True, "urgent"), (3, True, True, "urgent"),
+])
+def test_summary_keeps_highest_unacknowledged_alert(app, client, new_level, new_acknowledged, offline, expected):
+    _seed_patient_with_device(app)
+    with app.app_context():
+        now = datetime.now(timezone.utc)
+        db.session.get(Device, "pneumacare-a1b2").status = "offline" if offline else "online"
+        db.session.add_all([
+            Alert(id="urgent-open", device_id="pneumacare-a1b2", patient_id="patient-1", level=3,
+                  triggers=[], created_at=now - timedelta(minutes=2), acknowledged=False),
+            Alert(id="newer", device_id="pneumacare-a1b2", patient_id="patient-1", level=new_level,
+                  triggers=[], created_at=now, acknowledged=new_acknowledged),
+        ])
+        db.session.commit()
+    _login_patient(client)
+    body = client.get("/api/v1/patient/me/summary").get_json()
+    assert body["status_label"] == expected
+    assert body["device_connected"] is (not offline)
+
+
+@pytest.mark.parametrize("level,acknowledged,expected", [(1, False, "attention"), (2, False, "attention"), (3, True, "stable")])
+def test_summary_only_unacknowledged_alerts_affect_status(app, client, level, acknowledged, expected):
+    _seed_patient_with_device(app)
+    with app.app_context():
+        db.session.add(Alert(id="single", device_id="pneumacare-a1b2", patient_id="patient-1", level=level,
+                             triggers=[], created_at=datetime.now(timezone.utc), acknowledged=acknowledged))
+        db.session.commit()
+    _login_patient(client)
+    assert client.get("/api/v1/patient/me/summary").get_json()["status_label"] == expected
+
+
 def test_summary_returns_own_data(app, client):
     _seed_patient_with_device(app)
     with app.app_context():
@@ -74,10 +109,10 @@ def test_summary_includes_latest_classification(app, client):
                 channel_id=1,
                 segment_start=now - timedelta(seconds=5),
                 segment_end=now,
-                wheeze_crackle_class="wheeze",
-                wheeze_crackle_confidence=0.87,
-                wheeze_crackle_probabilities=[0.05, 0.03, 0.87, 0.05],
-                wheeze_crackle_model_version="mobilenet_v3_small_epoch05_valloss0.9021",
+                predicted_class="abnormal",
+                confidence=0.87,
+                probabilities={"normal": 0.13, "abnormal": 0.87},
+                model_version="ast_model_v1.0",
             )
         )
         db.session.commit()
@@ -87,7 +122,7 @@ def test_summary_includes_latest_classification(app, client):
 
     assert response.status_code == 200
     body = response.get_json()
-    assert body["latest_classification"]["predicted_class"] == "wheeze"
+    assert body["latest_classification"]["predicted_class"] == "abnormal"
     assert body["latest_classification"]["confidence"] == 0.87
 
 

@@ -42,16 +42,16 @@ export type Classification = {
   channel_id: number;
   segment_start: string;
   segment_end: string;
-  wheeze_crackle_class: "none" | "crackle" | "wheeze" | "both";
-  wheeze_crackle_confidence: number;
-  wheeze_crackle_probabilities: Partial<Record<"none" | "crackle" | "wheeze" | "both", number>> | null;
-  wheeze_crackle_model_version: string;
+  predicted_class: "normal" | "abnormal";
+  confidence: number;
+  probabilities: Partial<Record<"normal" | "abnormal", number>> | null;
+  model_version: string;
   severity_class: string | null;
 } | null;
 
 export type TrendInfo = { window_start: string; window_end: string; slope: number; significant: boolean } | null;
 
-export type WheezeCrackleHistory = {
+export type ClassificationHistory = {
   range: TimeRange;
   start: string;
   end: string;
@@ -59,10 +59,8 @@ export type WheezeCrackleHistory = {
   buckets: {
     bucket_start: string;
     total: number;
-    none: number;
-    crackle: number;
-    wheeze: number;
-    both: number;
+    normal: number;
+    abnormal: number;
     abnormal_ratio: number | null;
   }[];
 };
@@ -100,10 +98,11 @@ export const fetchVitalsHistory = (id: string, from: Date, to: Date) =>
   apiFetch<VitalReadingPoint[]>(
     `/patients/${encodeURIComponent(id)}/vitals/history?from=${encodeURIComponent(iso(from))}&to=${encodeURIComponent(iso(to))}`,
   );
-export const fetchSeverity = (id: string) => apiFetch<Classification>(`/patients/${encodeURIComponent(id)}/severity/latest`);
+export const fetchClassification = (id: string) =>
+  apiFetch<Classification>(`/patients/${encodeURIComponent(id)}/classification/latest`);
 export const fetchTrend = (id: string) => apiFetch<TrendInfo>(`/patients/${encodeURIComponent(id)}/trend`);
-export const fetchWheezeCrackleHistory = (id: string, range: TimeRange) =>
-  apiFetch<WheezeCrackleHistory>(`/patients/${encodeURIComponent(id)}/wheeze-crackle/history?range=${range}`);
+export const fetchClassificationHistory = (id: string, range: TimeRange) =>
+  apiFetch<ClassificationHistory>(`/patients/${encodeURIComponent(id)}/classification/history?range=${range}`);
 
 export const fetchPatientAlerts = (id: string) => apiFetch<ClinicianAlert[]>(`/patients/${encodeURIComponent(id)}/alerts`);
 export const fetchAlertCenter = () => apiFetch<ClinicianAlert[]>("/clinician/alerts");

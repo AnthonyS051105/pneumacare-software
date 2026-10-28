@@ -10,7 +10,7 @@ from flask import Blueprint, jsonify, request
 from flask_login import current_user
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from backend.analytics.wheeze_crackle_history import ClassifiedSegment, bucket_classifications
+from backend.analytics.classification_history import ClassifiedSegment, bucket_classifications
 from backend.api.serializers import device_dict, iso_or_none
 from backend.auth.decorators import role_required
 from backend.models import db
@@ -28,7 +28,7 @@ clinician_bp = Blueprint("clinician", __name__, url_prefix="/api/v1")
 
 MIN_PASSWORD_LENGTH = 8
 
-# Rentang riwayat wheeze/crackle dan lebar bucket-nya (FR-SW-053). Lebar bucket dipilih
+# Rentang riwayat klasifikasi dan lebar bucket-nya (FR-SW-053). Lebar bucket dipilih
 # supaya grafik tetap ~24-30 titik, bukan nilai klinis.
 _HISTORY_RANGES = {
     "24h": (timedelta(hours=24), timedelta(hours=1)),
@@ -222,9 +222,9 @@ def patient_vitals_history(patient_id: str):
     )
 
 
-@clinician_bp.get("/patients/<patient_id>/severity/latest")
+@clinician_bp.get("/patients/<patient_id>/classification/latest")
 @role_required("clinician")
-def patient_severity_latest(patient_id: str):
+def patient_classification_latest(patient_id: str):
     patient = _require_owned_patient(patient_id)
     if isinstance(patient, tuple):
         return patient
@@ -247,10 +247,10 @@ def patient_severity_latest(patient_id: str):
             "channel_id": latest.channel_id,
             "segment_start": latest.segment_start.isoformat(),
             "segment_end": latest.segment_end.isoformat(),
-            "wheeze_crackle_class": latest.wheeze_crackle_class,
-            "wheeze_crackle_confidence": latest.wheeze_crackle_confidence,
-            "wheeze_crackle_probabilities": latest.wheeze_crackle_probabilities,
-            "wheeze_crackle_model_version": latest.wheeze_crackle_model_version,
+            "predicted_class": latest.predicted_class,
+            "confidence": latest.confidence,
+            "probabilities": latest.probabilities,
+            "model_version": latest.model_version,
             # 🔓⏸️ Model B ditunda — selalu None sampai terintegrasi (INTEGRATION_CONTRACT.md §4.2)
             "severity_class": latest.severity_class,
         }
@@ -358,9 +358,9 @@ def clinician_alerts():
     return jsonify([_alert_dict(a, names.get(a.patient_id)) for a in alerts])
 
 
-@clinician_bp.get("/patients/<patient_id>/wheeze-crackle/history")
+@clinician_bp.get("/patients/<patient_id>/classification/history")
 @role_required("clinician")
-def patient_wheeze_crackle_history(patient_id: str):
+def patient_classification_history(patient_id: str):
     patient = _require_owned_patient(patient_id)
     if isinstance(patient, tuple):
         return patient
@@ -376,8 +376,8 @@ def patient_wheeze_crackle_history(patient_id: str):
     segments = []
     if device is not None:
         segments = [
-            ClassifiedSegment(segment_end=row.segment_end, wheeze_crackle_class=row.wheeze_crackle_class)
-            for row in db.session.query(ReadingClassification.segment_end, ReadingClassification.wheeze_crackle_class)
+            ClassifiedSegment(segment_end=row.segment_end, predicted_class=row.predicted_class)
+            for row in db.session.query(ReadingClassification.segment_end, ReadingClassification.predicted_class)
             .filter(
                 ReadingClassification.device_id == device.device_id,
                 ReadingClassification.segment_end >= start,

@@ -1,5 +1,7 @@
 """Isolated loopback WebSocket test, 4 x 16 kHz, 250 ms, real pacing.
 
+Historical MobileNet benchmark for commit d1a48df, before the AST integration.
+Run from that revision in an isolated checkout; it does not measure the AST model.
 Creates a temporary SQLite DB. Never sends to MQTT or writes the development DB.
 --baseline uses unchanged synchronous receiver from HEAD in an isolated source tree.
 Reports local monotonic durations, not device-to-server latency.
@@ -30,6 +32,9 @@ def main():
         parser.error('duration must be multiple of 5')
 
     from backend.config import Config
+    if not hasattr(Config, 'MODEL_A_CHECKPOINT_PATH'):
+        parser.error('Historical MobileNet benchmark: use isolated revision d1a48df; '
+                     'this script does not support the merged AST pipeline.')
     checkpoint = Config.MODEL_A_CHECKPOINT_PATH
     Config.MODEL_A_CHECKPOINT_PATH = ''  # no global model load during app import
     # Disable import-time background services BEFORE importing the app module.

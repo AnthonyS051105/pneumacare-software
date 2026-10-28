@@ -1,4 +1,6 @@
-> Audit sebelum merge terbaru: [AUDIT_FEAT_AI_INTEGRATION_2026-10-28.md](AUDIT_FEAT_AI_INTEGRATION_2026-10-28.md). Ditemukan lima blocker yang direproduksi; keputusan saat ini belum merge.
+> Pembaruan integrasi: Tony meminta merge `feat/ai-integration` ke `main`. Lima masalah audit telah diperbaiki; lihat [FIX_FIVE_AUDIT_2026-10-28.md](FIX_FIVE_AUDIT_2026-10-28.md). Source root kini mengikuti AST dua kelas. Catatan pengukuran di bawah adalah rekaman historis; merge tidak membuktikan drop audio atau kesiapan model final sudah terselesaikan.
+>
+> `./run-demo.sh` kini menjalankan source root dengan DB hasil upgrade yang sudah ada di `.worktrees/feat-ai-integration-demo/backend/demo-ready-two-class-v1.db`. Override dengan `--database /path/compatible.db` bila memindahkan setup. Proses backend yang sudah aktif tidak otomatis direstart.
 
 # Status demo PNEUMACARE — 28 Oktober 2026
 

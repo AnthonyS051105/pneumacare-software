@@ -1,0 +1,17 @@
+# Python 3.12. Versi mengikuti Env pengembangan di ~/dev/pneumacare-ml-services/Env.
+# Index CPU diperlukan agar pip tidak menarik wheel CUDA yang jauh lebih besar.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+fastapi==0.158.1
+uvicorn==0.54.0
+python-dotenv==1.0.1
+python-multipart==0.0.32
+numpy==2.1.2
+scipy==1.14.1
+torch==2.14.1+cpu
+pytorch-lightning==2.6.6
+torchmetrics==1.9.0
+transformers==5.20.2
+librosa==1.0.0
+soundfile==0.14.0
+soxr==1.1.0

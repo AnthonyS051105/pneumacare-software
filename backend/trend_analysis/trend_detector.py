@@ -1,4 +1,4 @@
-"""Moving average + regresi linear terhadap frekuensi wheeze/crackle, untuk memicu
+"""Moving average + regresi linear terhadap frekuensi abnormal, untuk memicu
 trend_event bila slope melewati ambang signifikansi (FR-SW-022, FR-SW-023,
 SDD_SOFTWARE.md §6).
 
@@ -61,9 +61,8 @@ def detect_trend(
     points: list[FrequencyPoint],
     moving_average_window: int,
     significance_threshold: float,
-    metric: str = "wheeze_frequency",
 ) -> TrendResult | None:
-    """Hitung slope tren dari rolling-window frequency points untuk satu metrik.
+    """Hitung slope tren dari rolling-window frequency points.
 
     Mengembalikan None bila titik data kurang dari 2 (regresi tidak bermakna).
     `significant=true` hanya bila |slope| melewati ambang DAN arah naik (slope > 0),
@@ -73,10 +72,7 @@ def detect_trend(
     if len(points) < 2:
         return None
 
-    if metric not in ("wheeze_frequency", "crackle_frequency"):
-        raise ValueError(f"metric tidak dikenal: {metric}")
-
-    raw_values = [getattr(p, metric) for p in points]
+    raw_values = [p.abnormal_frequency for p in points]
     smoothed_values = _moving_average(raw_values, moving_average_window)
 
     # Sumbu-x regresi: menit sejak titik pertama, supaya slope punya satuan

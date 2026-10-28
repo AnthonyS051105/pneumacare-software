@@ -2,13 +2,14 @@
 
 Endpoint /ws/audio menerima chunk audio sesuai skema base64 JSON yang diputuskan
 di INTEGRATION_CONTRACT.md §2.3, menyusunnya jadi segmen 5 detik per channel
-(INTEGRATION_CONTRACT.md §4.1), lalu meneruskan tiap segmen genap ke Model A asli
-(bila ter-load saat startup, lihat inference/model_startup.py) atau mock_inference.
+(INTEGRATION_CONTRACT.md §4.1), lalu meneruskan tiap segmen genap ke ML service
+via HTTP atau mock_inference hanya bila mode mock dipilih eksplisit.
 """
 
 import base64
 import json
 import logging
+from contextlib import contextmanager
 from threading import Event, Lock
 from time import monotonic, time
 import numpy as np
@@ -19,17 +20,35 @@ from flask_sock import Sock
 
 from backend.alerting.alert_engine import VitalReading
 from backend.alerting.alert_service import evaluate_and_save_alert
+from backend.analysis.cycle_segmenter import CycleDetectionResult, CycleSlice, detect_cycle_slices
 from backend.inference.inference_service import run_inference
+from backend.inference.ml_service_client import MLServiceError
 from backend.inference.mock_inference import run_mock_inference
 from backend.ingestion.audio_segment_buffer import AudioSegmentBuffer, Segment
 from backend.ingestion.audio_worker import AudioWorker
 from backend.ingestion.device_registry import upsert_device_seen
 from backend.models import db
 from backend.models.classification import ReadingClassification
+from backend.models.respiratory_cycle import RespiratoryCycle
 from backend.models.vital import ReadingVital
+from backend.vitals.alert_readings import vitals_for_alert
 from backend.trend_analysis.trend_service import compute_and_save_trend
 
 logger = logging.getLogger(__name__)
+
+@contextmanager
+def _timed_stage(stage: str, device_id: str, channel_id: int):
+    started = monotonic()
+    status = "ok"
+    try:
+        yield
+    except BaseException:
+        status = "error"
+        raise
+    finally:
+        logger.info("audio_stage stage=%s status=%s device=%s channel=%s duration_ms=%.3f",
+                    stage, status, device_id, channel_id, (monotonic() - started) * 1000)
+
 
 sock = Sock()
 
@@ -60,94 +79,182 @@ def _decode_pcm_base64(pcm_base64: str):
 
 
 def _persist_segment_result(result: dict) -> None:
-    wheeze_crackle = result["wheeze_crackle"]
+    classification = result["classification"]
     reading = ReadingClassification(
         id=result["segment_id"],
         device_id=result["device_id"],
         channel_id=result["channel_id"],
         segment_start=datetime.fromtimestamp(result["segment_start_ms"] / 1000, tz=timezone.utc),
         segment_end=datetime.fromtimestamp(result["segment_end_ms"] / 1000, tz=timezone.utc),
-        wheeze_crackle_class=wheeze_crackle["predicted_class"],
-        wheeze_crackle_confidence=wheeze_crackle["confidence"],
-        wheeze_crackle_probabilities=wheeze_crackle["probabilities"],
-        wheeze_crackle_model_version=result["model_version"],
+        predicted_class=classification["predicted_class"],
+        confidence=classification["confidence"],
+        probabilities=classification["probabilities"],
+        model_version=result["model_version"],
     )
     db.session.add(reading)
     db.session.commit()
 
 
+def _classify_input(
+    pcm_samples: list[int],
+    sample_rate: int,
+    device_id: str,
+    channel_id: int,
+    segment_start_ms: int,
+    segment_end_ms: int,
+) -> dict:
+    ml_service_url = current_app.config.get("ML_SERVICE_URL", "")
+    scenario = current_app.config.get("MOCK_INFERENCE_SCENARIO", "random")
+
+    if ml_service_url:
+        try:
+            # WAV serialization, HTTP wait and response validation; remote stages
+            # need their own service logs and are not inferred from this timer.
+            with _timed_stage("classify_http", device_id, channel_id):
+                return run_inference(
+                    pcm_samples=pcm_samples,
+                    source_sample_rate=sample_rate,
+                    device_id=device_id,
+                    channel_id=channel_id,
+                    segment_start_ms=segment_start_ms,
+                    segment_end_ms=segment_end_ms,
+                    model_version=current_app.config.get("ML_SERVICE_MODEL_VERSION", "unknown"),
+                    ml_service_url=ml_service_url,
+                    timeout_seconds=current_app.config.get("ML_SERVICE_TIMEOUT_SECONDS", 30),
+                )
+        except MLServiceError:
+            logger.exception(
+                "ML service gagal device=%s channel=%s — job gagal; hasil sintetis tidak dibuat",
+                device_id,
+                channel_id,
+            )
+            raise
+
+    return run_mock_inference(
+        pcm_samples=pcm_samples,
+        device_id=device_id,
+        channel_id=channel_id,
+        segment_start_ms=segment_start_ms,
+        segment_end_ms=segment_end_ms,
+        scenario=scenario,
+    )
+
+
+def _persist_cycle_metadata(
+    result: dict,
+    segment: Segment,
+    detection: CycleDetectionResult,
+    cycle: CycleSlice | None,
+) -> None:
+    cycle_start_ms = None
+    cycle_end_ms = None
+    if cycle is not None:
+        cycle_start_ms = segment.segment_start_ms + round(cycle.start_s * 1000)
+        cycle_end_ms = segment.segment_start_ms + round(cycle.end_s * 1000)
+
+    db.session.add(
+        RespiratoryCycle(
+            classification_id=result["segment_id"],
+            device_id=segment.device_id,
+            channel_id=segment.channel_id,
+            analysis_start=datetime.fromtimestamp(
+                segment.segment_start_ms / 1000, tz=timezone.utc
+            ),
+            analysis_end=datetime.fromtimestamp(
+                segment.segment_end_ms / 1000, tz=timezone.utc
+            ),
+            detection_status="detected" if cycle is not None else detection.status,
+            cycle_index=cycle.index if cycle is not None else None,
+            cycle_start_ms=cycle_start_ms,
+            cycle_end_ms=cycle_end_ms,
+            mean_dtw=detection.mean_dtw,
+            dtw_score=cycle.dtw_score if cycle is not None else None,
+        )
+    )
+    db.session.commit()
+
+
 def _handle_segment(segment: Segment, job=None) -> None:
-    timings = {}
-    started = monotonic()
-    model = current_app.config.get("_INFERENCE_MODEL")
+    # Retain cycle detection/classification semantics from feat/ai-integration.
+    if job is not None:
+        job.check_cancelled()
+    with _timed_stage("registry", segment.device_id, segment.channel_id):
+        upsert_device_seen(segment.device_id)
+    with _timed_stage("cycle_detection", segment.device_id, segment.channel_id):
+        detection = detect_cycle_slices(segment.pcm_samples, segment.sample_rate)
+    logger.info("audio_cycles device=%s channel=%s status=%s cycles=%d mean_dtw=%s",
+                segment.device_id, segment.channel_id, detection.status,
+                len(detection.cycles), detection.mean_dtw)
 
-    if model is not None:
-        result = run_inference(
-            model=model,
-            pcm_samples=segment.pcm_samples,
-            source_sample_rate=segment.sample_rate,
-            device_id=segment.device_id,
-            channel_id=segment.channel_id,
-            segment_start_ms=segment.segment_start_ms,
-            segment_end_ms=segment.segment_end_ms,
-            model_version=current_app.config.get("MODEL_A_VERSION", "unknown"),
-        )
+    if detection.cycles:
+        inputs = [
+            (
+                cycle.pcm_samples,
+                segment.segment_start_ms + round(cycle.start_s * 1000),
+                segment.segment_start_ms + round(cycle.end_s * 1000),
+                cycle,
+            )
+            for cycle in detection.cycles
+        ]
     else:
-        scenario = current_app.config.get("MOCK_INFERENCE_SCENARIO", "random")
-        result = run_mock_inference(
-            pcm_samples=segment.pcm_samples,
-            device_id=segment.device_id,
-            channel_id=segment.channel_id,
-            segment_start_ms=segment.segment_start_ms,
-            segment_end_ms=segment.segment_end_ms,
-            scenario=scenario,
+        inputs = [
+            (
+                segment.pcm_samples,
+                segment.segment_start_ms,
+                segment.segment_end_ms,
+                None,
+            )
+        ]
+
+    for pcm_samples, start_ms, end_ms, cycle in inputs:
+        if job is not None:
+            job.check_cancelled()
+        with _timed_stage("classification", segment.device_id, segment.channel_id):
+            result = _classify_input(
+                pcm_samples=pcm_samples,
+                sample_rate=segment.sample_rate,
+                device_id=segment.device_id,
+                channel_id=segment.channel_id,
+                segment_start_ms=start_ms,
+                segment_end_ms=end_ms,
+            )
+        # HTTP/model calls cannot be interrupted safely; do not persist stale work
+        # when replacement/disconnect was observed while the model was running.
+        if job is not None:
+            job.check_cancelled()
+        # Includes both existing commits; this does not make them atomic.
+        with _timed_stage("persist_cycle", segment.device_id, segment.channel_id):
+            _persist_segment_result(result)
+            _persist_cycle_metadata(result, segment, detection, cycle)
+        logger.info(
+            "segment inferred device=%s channel=%s classification_id=%s cycle=%s predicted_class=%s confidence=%.3f",
+            segment.device_id,
+            segment.channel_id,
+            result["segment_id"],
+            cycle.index if cycle is not None else "fallback",
+            result["classification"]["predicted_class"],
+            result["classification"]["confidence"],
         )
 
-    timings["model_total_ms"] = (monotonic() - started) * 1000
     if job is not None:
         job.check_cancelled()
-    started = monotonic()
-    upsert_device_seen(segment.device_id)
-    timings["registry_ms"] = (monotonic() - started) * 1000
-    started = monotonic()
-    if job is not None:
-        job.check_cancelled()
-    _persist_segment_result(result)
-    timings["persist_ms"] = (monotonic() - started) * 1000
-    logger.info(
-        "segment inferred device=%s channel=%s predicted_class=%s confidence=%.3f",
-        segment.device_id,
-        segment.channel_id,
-        result["wheeze_crackle"]["predicted_class"],
-        result["wheeze_crackle"]["confidence"],
-    )
-
     app = current_app._get_current_object()
-    started = monotonic()
-    if job is not None:
-        job.check_cancelled()
-    trend_result = compute_and_save_trend(app, segment.device_id, segment.channel_id)
-    timings["trend_ms"] = (monotonic() - started) * 1000
-    started = monotonic()
+    with _timed_stage("trend", segment.device_id, segment.channel_id):
+        trend_result = compute_and_save_trend(app, segment.device_id, segment.channel_id)
 
-    latest_vital = (
-        db.session.query(ReadingVital)
-        .filter_by(device_id=segment.device_id)
-        .order_by(ReadingVital.timestamp.desc())
-        .first()
-    )
-    vitals = VitalReading(
-        hr=latest_vital.hr if latest_vital is not None else None,
-        spo2=latest_vital.spo2 if latest_vital is not None else None,
-        rr=latest_vital.rr if latest_vital is not None else None,
-    )
-    if job is not None:
-        job.check_cancelled()
-    evaluate_and_save_alert(app, device_id=segment.device_id, vitals=vitals, trend_result=trend_result)
-
-    timings["alert_ms"] = (monotonic() - started) * 1000
-    logger.info("audio_stages device=%s channel=%s durations=%s", segment.device_id,
-                segment.channel_id, timings)
+    # Include the latest-vital lookup as downstream alert work.
+    with _timed_stage("alert", segment.device_id, segment.channel_id):
+        latest_vital = (
+            db.session.query(ReadingVital)
+            .filter_by(device_id=segment.device_id)
+            .order_by(ReadingVital.timestamp.desc())
+            .first()
+        )
+        vitals = vitals_for_alert(
+            latest_vital, app.config['VITAL_ALERT_MAX_AGE_SECONDS'])
+        if job is not None:
+            job.check_cancelled()
+        evaluate_and_save_alert(app, device_id=segment.device_id, vitals=vitals, trend_result=trend_result)
 
 
 class AudioReceiver:
@@ -225,7 +332,6 @@ class AudioConnection:
                 self._reset("invalid_frame")
             return False
         if h["timestamp_ms"] < 1700000000000:
-            # This is an observation-time estimate, not acquisition latency.
             h["timestamp_ms"] = int(time() * 1000) - h["chunk_duration_ms"]
             self.timestamp_fallbacks += 1
             if self.timestamp_fallbacks == 1:

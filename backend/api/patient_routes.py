@@ -126,18 +126,18 @@ def summary():
             .first()
         )
 
-    latest_alert = (
+    active_alert = (
         db.session.query(Alert)
-        .filter_by(patient_id=patient.id)
-        .order_by(Alert.created_at.desc())
+        .filter_by(patient_id=patient.id, acknowledged=False)
+        .order_by(Alert.level.desc(), Alert.created_at.desc())
         .first()
     )
     # FR-SW-065: status traffic-light bahasa awam, BUKAN istilah klinis mentah.
     # Nilai "stable"/"attention"/"urgent" dipilih SESUAI StatusLevel di
     # src/components/patient/StatusHeroCard.tsx (frontend) — bukan "stabil"/dst.
     status_label = "stable"
-    if latest_alert is not None and not latest_alert.acknowledged:
-        status_label = "urgent" if latest_alert.level == 3 else "attention"
+    if active_alert is not None:
+        status_label = "urgent" if active_alert.level == 3 else "attention"
 
     today_range = _today_range(device.device_id) if device is not None else None
     wear_hours_today = _wear_compliance_for_day(
@@ -159,12 +159,12 @@ def summary():
             },
             "today_range": today_range,
             "wear_compliance_today_hours": wear_hours_today,
-            # Hasil terbaru Model A (wheeze/crackle CNN) — FR-SW checkpoint 50%,
-            # ditampilkan apa adanya sebagai indikasi skrining, BUKAN diagnosis
-            # (lihat batasan framing di keputusan_terkunci.md).
+            # Hasil terbaru Model A (2 kelas: normal/abnormal) — ditampilkan apa adanya
+            # sebagai indikasi skrining, BUKAN diagnosis (lihat batasan framing di
+            # keputusan_terkunci.md).
             "latest_classification": {
-                "predicted_class": latest_classification.wheeze_crackle_class,
-                "confidence": latest_classification.wheeze_crackle_confidence,
+                "predicted_class": latest_classification.predicted_class,
+                "confidence": latest_classification.confidence,
                 "timestamp": latest_classification.segment_end.isoformat(),
             }
             if latest_classification is not None

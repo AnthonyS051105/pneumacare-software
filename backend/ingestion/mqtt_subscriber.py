@@ -7,18 +7,19 @@ Flask dev server request-handling thread (paho-mqtt `loop_start()`).
 
 import json
 import logging
+import math
 import uuid
 from collections import deque
 from datetime import datetime, timezone
 
 import paho.mqtt.client as mqtt
 
-from backend.alerting.alert_engine import VitalReading
 from backend.alerting.alert_service import evaluate_and_save_alert
 from backend.ingestion.device_registry import upsert_device_seen
 from backend.models import db
 from backend.models.device import Device, DeviceStatusLog
 from backend.models.vital import ReadingVital
+from backend.vitals.alert_readings import vitals_for_alert
 from backend.vitals.vitals_service import compute_vitals_from_ppg_batch
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ TOPIC_STATUS = "pneumacare/+/status"
 # Buffer in-memory ini sementara menampung raw samples per device untuk dikonsumsi modul
 # bandpass_filter/hr_estimator/spo2_estimator — TIDAK persisted, hilang saat restart.
 # Kapasitas dibatasi (maxlen) supaya tidak bocor memori.
-_RAW_PPG_BUFFER_MAXLEN = 6000  # ~60 detik pada 100 Hz (asumsi contoh §3.3, ⚠️ belum final)
+_RAW_PPG_BUFFER_MAXLEN = 60  # 60 batches, ~60 s at nominal one batch/second
 raw_ppg_buffers: dict[str, deque[dict]] = {}
 
 # 🧩 Panjang window akumulasi sebelum estimasi HR/SpO2 dijalankan — dipilih 15 detik
@@ -70,17 +71,24 @@ def _run_vitals_estimation(app, device_id: str, sample_rate_hz: float) -> None:
     # confidence="poor" TETAP disimpan (bukan di-skip) — dashboard/analisis boleh
     # tahu ada bacaan tapi tidak diyakini, bukan diam-diam kehilangan titik data.
     with app.app_context():
-        db.session.add(
-            ReadingVital(
-                id=str(uuid.uuid4()),
-                device_id=device_id,
-                timestamp=datetime.now(timezone.utc),
-                hr=hr_estimate.hr_bpm,
-                spo2=spo2_estimate.spo2_percent if spo2_estimate is not None else None,
-                rr=None,  # lihat docstring vitals_service.py — sumber sinyal RR belum ditentukan
-            )
+        reading = ReadingVital(
+            id=str(uuid.uuid4()),
+            device_id=device_id,
+            timestamp=datetime.now(timezone.utc),
+            hr=hr_estimate.hr_bpm,
+            spo2=spo2_estimate.spo2_percent if spo2_estimate is not None else None,
+            rr=None,  # sumber sinyal RR belum ditentukan
+            hr_confidence=hr_estimate.confidence,
+            spo2_confidence=spo2_estimate.confidence if spo2_estimate is not None else None,
+            rr_confidence=None,
         )
+        db.session.add(reading)
         db.session.commit()
+        safe_vitals = vitals_for_alert(
+            reading, app.config.get("VITAL_ALERT_MAX_AGE_SECONDS", 45)
+        )
+        if safe_vitals.hr is not None or safe_vitals.spo2 is not None:
+            evaluate_and_save_alert(app, device_id=device_id, vitals=safe_vitals, trend_result=None)
     logger.info(
         "vitals dihitung device=%s hr=%s(%s) spo2=%s(%s)",
         device_id,
@@ -90,24 +98,56 @@ def _run_vitals_estimation(app, device_id: str, sample_rate_hz: float) -> None:
         spo2_estimate.confidence if spo2_estimate is not None else "n/a",
     )
 
-    # Alert engine HANYA menerima nilai confidence="good" — sinyal "poor" (mis. deteksi
-    # puncak gagal, SNR rendah) tetap disimpan di ReadingVital untuk transparansi data,
-    # TAPI tidak boleh memicu evaluasi threshold (mencegah alert palsu dari sinyal buruk).
-    hr_for_alert = hr_estimate.hr_bpm if hr_estimate.confidence == "good" else None
-    spo2_for_alert = (
-        spo2_estimate.spo2_percent if spo2_estimate is not None and spo2_estimate.confidence == "good" else None
-    )
-    if hr_for_alert is not None or spo2_for_alert is not None:
-        with app.app_context():
-            evaluate_and_save_alert(
-                app,
-                device_id=device_id,
-                vitals=VitalReading(hr=hr_for_alert, spo2=spo2_for_alert, rr=None),
-                trend_result=None,
-            )
+
+def _discard_ppg_window(device_id: str) -> None:
+    """Do not join samples across rejected batches or failed processing."""
+    _ir_sample_buffers.pop(device_id, None)
+    _red_sample_buffers.pop(device_id, None)
+
+
+def _is_finite_number(value) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
+
+
+def _validate_payload(app, device_id: str, payload, *, ppg: bool) -> None:
+    if not isinstance(payload, dict):
+        raise ValueError("payload_must_be_object")
+    if "device_id" in payload and payload["device_id"] != device_id:
+        raise ValueError("device_id_topic_mismatch")
+    if "timestamp_ms" in payload:
+        timestamp = payload["timestamp_ms"]
+        if isinstance(timestamp, bool) or not isinstance(timestamp, int) or timestamp < 0:
+            raise ValueError("invalid_timestamp")
+    if not ppg:
+        if payload.get("status") not in ("online", "offline"):
+            raise ValueError("invalid_status")
+        return
+    rate = payload.get("sample_rate_hz", app.config.get("PPG_SAMPLE_RATE_HZ_DEFAULT", 100))
+    if (not _is_finite_number(rate)
+            or not 0 < rate <= app.config.get("PPG_MAX_SAMPLE_RATE_HZ", 1000)):
+        raise ValueError("invalid_sample_rate")
+    samples = payload.get("samples")
+    maximum = app.config.get("PPG_MAX_BATCH_SAMPLES", 2000)
+    if not isinstance(samples, list) or not 0 < len(samples) <= maximum:
+        raise ValueError("invalid_ir_batch_length")
+    red = payload.get("samples_red")
+    if "samples_red" in payload and (not isinstance(red, list) or len(red) != len(samples)):
+        raise ValueError("invalid_red_batch_length")
+    max_value = app.config.get("PPG_MAX_SAMPLE_VALUE", 4294967295)
+    for channel in (samples, red):
+        if channel is not None and any(
+            not _is_finite_number(value) or not 0 <= value <= max_value for value in channel
+        ):
+            raise ValueError("invalid_sample_value")
 
 
 def _handle_ppg_raw(app, device_id: str, payload: dict) -> None:
+    _validate_payload(app, device_id, payload, ppg=True)
     buffer = raw_ppg_buffers.setdefault(device_id, deque(maxlen=_RAW_PPG_BUFFER_MAXLEN))
     buffer.append(
         {
@@ -192,7 +232,8 @@ def _handle_status(app, device_id: str, payload: dict) -> None:
 
 def _extract_device_id(topic: str) -> str | None:
     parts = topic.split("/")
-    if len(parts) < 2:
+    if (len(parts) not in (3, 4) or parts[0] != "pneumacare" or not parts[1]
+            or (parts[2:] != ["status"] and parts[2:] != ["ppg", "raw"])):
         return None
     return parts[1]
 
@@ -227,16 +268,35 @@ def create_mqtt_client(app) -> mqtt.Client:
             logger.warning("topik MQTT tidak dikenali: %s", msg.topic)
             return
 
+        is_ppg = msg.topic.endswith("/ppg/raw")
         try:
+            if len(msg.payload) > app.config.get("MQTT_MAX_PAYLOAD_BYTES", 262144):
+                raise ValueError("payload_too_large")
             payload = json.loads(msg.payload.decode("utf-8"))
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            logger.warning("payload MQTT bukan JSON valid di topik %s", msg.topic)
+            _validate_payload(app, device_id, payload, ppg=is_ppg)
+        except (ValueError, UnicodeDecodeError):
+            if is_ppg:
+                _discard_ppg_window(device_id)
+            logger.warning("mqtt_rejected device=%s kind=%s reason=invalid_payload", device_id, "ppg" if is_ppg else "status")
             return
 
-        if msg.topic.endswith("/ppg/raw"):
-            _handle_ppg_raw(app, device_id, payload)
-        elif msg.topic.endswith("/status"):
-            _handle_status(app, device_id, payload)
+        # Bound failures to one message. A bad payload/DB operation must never escape
+        # paho's callback and terminate its network thread. Context cleanup removes the
+        # SQLAlchemy session even when a downstream handler raises after a mutation.
+        with app.app_context():
+            try:
+                if is_ppg:
+                    _handle_ppg_raw(app, device_id, payload)
+                else:
+                    _handle_status(app, device_id, payload)
+            except Exception as exc:
+                db.session.rollback()
+                if is_ppg:
+                    _discard_ppg_window(device_id)
+                logger.error("mqtt_handler_failed device=%s kind=%s error_type=%s", device_id,
+                             "ppg" if is_ppg else "status", type(exc).__name__)
+            finally:
+                db.session.remove()
 
     def on_disconnect(client, userdata, flags, reason_code, properties=None):
         logger.warning("terputus dari MQTT broker: %s", reason_code)

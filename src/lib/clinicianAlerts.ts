@@ -9,21 +9,19 @@ const PARAM: Record<string, { label: string; unit: string }> = {
   hr: { label: "HR", unit: " bpm" },
   spo2: { label: "SpO₂", unit: "%" },
   rr: { label: "RR", unit: " napas/menit" },
-  wheeze_frequency: { label: "frekuensi wheeze", unit: "" },
-  crackle_frequency: { label: "frekuensi crackle", unit: "" },
-  wheeze_crackle_frequency: { label: "frekuensi wheeze/crackle", unit: "" },
+  abnormal_frequency: { label: "frekuensi abnormal", unit: "" },
 };
 
 const LEVEL: Record<number, AlertLevel> = { 1: "info", 2: "warn", 3: "urgent" };
 
 function param(name: string | undefined, type?: string) {
-  if (!name) return type === "trend_slope" ? PARAM.wheeze_crackle_frequency : { label: "parameter", unit: "" };
+  if (!name) return type === "trend_slope" ? PARAM.abnormal_frequency : { label: "parameter", unit: "" };
   return PARAM[name] ?? { label: name, unit: "" };
 }
 
 const num = (v: unknown) => (typeof v === "number" ? String(Math.round(v * 100) / 100) : v == null ? "—" : String(v));
 
-/** "SpO₂ 91% < ambang 92%" / "HR 118 bpm mendekati ambang 120 bpm" / "Tren frekuensi wheeze naik (slope 0.14; ambang 0.05)". */
+/** "SpO₂ 91% < ambang 92%" / "HR 118 bpm mendekati ambang 120 bpm" / "Tren frekuensi abnormal naik (slope 0.14; ambang 0.05)". */
 export function triggerText(t: AlertTrigger): string {
   const { label, unit } = param(t.parameter, t.type);
   if (t.type === "vital_threshold") {

@@ -13,3 +13,8 @@ class ReadingVital(db.Model):
     spo2 = db.Column(db.Float, nullable=True)
     # ⚠️ ekstraksi RR dari sinyal apa belum eksplisit — cek PPG vs audio (SDD_SOFTWARE.md §3)
     rr = db.Column(db.Float, nullable=True)
+
+    # NULL = unknown (legacy rows), never implicitly trusted for alerts.
+    hr_confidence = db.Column(db.String(16), nullable=True)
+    spo2_confidence = db.Column(db.String(16), nullable=True)
+    rr_confidence = db.Column(db.String(16), nullable=True)

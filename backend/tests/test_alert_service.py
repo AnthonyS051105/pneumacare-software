@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from backend.alerting.alert_engine import VitalReading
 from backend.alerting.alert_service import evaluate_and_save_alert
 from backend.models import db
@@ -16,6 +18,21 @@ def _seed_device_with_patient(app, device_id="pneumacare-a1b2", patient_id="pati
         db.session.add(Patient(id=patient_id, name="Pasien Test"))
         db.session.add(Device(device_id=device_id, status="online", patient_id=patient_id))
         db.session.commit()
+
+
+@pytest.mark.parametrize("threshold,candidate_flag,expected", [(999, True, False), (0.01, False, True)])
+def test_alert_uses_current_patient_threshold_for_candidate(app, threshold, candidate_flag, expected):
+    _seed_device_with_patient(app)
+    with app.app_context():
+        db.session.add(Threshold(patient_id="patient-1", trend_significance_threshold=threshold))
+        db.session.commit()
+        now = datetime.now(timezone.utc)
+        trend = TrendResult(now - timedelta(minutes=1), now, slope=0.1, significant=candidate_flag)
+        result = evaluate_and_save_alert(app, "pneumacare-a1b2", VitalReading(None, None, None), trend,
+                                         trend_already_saved=False)
+        assert (result is not None) is expected
+        if result:
+            assert result.triggers[0]["threshold"] == threshold
 
 
 def test_returns_none_when_device_not_paired_to_patient(app):
@@ -91,12 +108,14 @@ def test_significant_trend_plus_persistence_escalates_to_level_3(app):
 
         trend_result = TrendResult(window_start=now - timedelta(minutes=2), window_end=now, slope=0.1, significant=True)
         result = evaluate_and_save_alert(
-            app, "pneumacare-a1b2", VitalReading(hr=None, spo2=None, rr=None), trend_result=trend_result
+            app, "pneumacare-a1b2", VitalReading(hr=None, spo2=None, rr=None), trend_result=trend_result,
+            trend_already_saved=False,
         )
 
         assert result is not None
         assert result.level == 3
         assert result.triggers[0]["type"] == "trend_slope"
+        assert result.triggers[0]["parameter"] == "abnormal_frequency"
 
 
 def test_persistent_condition_does_not_create_duplicate_alerts(app):
@@ -140,3 +159,31 @@ def test_condition_recurring_after_ack_and_cooldown_creates_new_alert(app):
 
         assert again is not None
         assert db.session.query(Alert).count() == 2
+
+
+def test_current_persisted_trend_counts_once_for_three_evaluation_persistence(app):
+    _seed_device_with_patient(app)
+    now = datetime.now(timezone.utc)
+    with app.app_context():
+        db.session.add(Threshold(patient_id='patient-1', trend_significance_threshold=.05))
+        for i, significant in enumerate((False, True, True)):
+            db.session.add(TrendEvent(
+                id=f'persisted-{i}', device_id='pneumacare-a1b2',
+                window_start=now-timedelta(seconds=30-i*5),
+                window_end=now-timedelta(seconds=10-i*5),
+                slope=.1 if significant else 0, significant=significant))
+        db.session.commit()
+        current = TrendResult(window_start=now-timedelta(seconds=20), window_end=now,
+                              slope=.1, significant=True)
+        result = evaluate_and_save_alert(app, 'pneumacare-a1b2', VitalReading(None, None, None), current)
+        assert result is not None
+        assert result.level == 2  # only TWO significant evaluations, not three
+        db.session.add(TrendEvent(id='persisted-3', device_id='pneumacare-a1b2',
+                                 window_start=now-timedelta(seconds=15),
+                                 window_end=now+timedelta(seconds=5), slope=.1, significant=True))
+        db.session.commit()
+        third = TrendResult(window_start=now-timedelta(seconds=15),
+                            window_end=now+timedelta(seconds=5), slope=.1, significant=True)
+        result = evaluate_and_save_alert(app, 'pneumacare-a1b2', VitalReading(None, None, None), third)
+        assert result is not None
+        assert result.level == 3

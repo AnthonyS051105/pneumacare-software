@@ -199,6 +199,12 @@ def test_single_trend_trigger_persistent_is_level_3():
     assert determine_alert_level([trigger], trend_persistent=True) == 3
 
 
+def test_make_trend_trigger_uses_abnormal_frequency_parameter():
+    trigger = make_trend_trigger(_trend_result(slope=0.1, significant=True), SIGNIFICANCE_THRESHOLD)
+    assert trigger.type == "trend_slope"
+    assert trigger.parameter == "abnormal_frequency"
+
+
 def test_multi_breach_trigger_is_level_3_regardless_of_persistence():
     vitals = VitalReading(hr=150, spo2=88, rr=16)
     triggers = _eval_vitals(vitals)

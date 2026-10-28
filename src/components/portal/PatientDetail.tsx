@@ -15,17 +15,17 @@ import { VitalChart } from "@/components/ui/VitalChart";
 import { ApiError } from "@/lib/api";
 import {
   acknowledgeAlert,
+  fetchClassification,
+  fetchClassificationHistory,
   fetchPatient,
   fetchPatientAlerts,
-  fetchSeverity,
   fetchThresholds,
   fetchTrend,
   fetchVitalsHistory,
-  fetchWheezeCrackleHistory,
   updateThresholds,
+  type ClassificationHistory,
   type ClinicianPatient,
   type Thresholds,
-  type WheezeCrackleHistory,
 } from "@/lib/clinicianApi";
 import { toClinicalAlertView } from "@/lib/clinicianAlerts";
 import { ageFrom, patientStatus, POLL_MS } from "@/lib/clinicianPatients";
@@ -291,8 +291,8 @@ export function VitalsTab() {
 /* ---------- Tren & hasil skrining Model A ---------- */
 
 const CHANNELS = ["Posterior kiri atas", "Posterior kanan atas", "Posterior kiri bawah", "Posterior kanan bawah"];
-const CLASS_LABEL = { none: "Tidak terdeteksi", crackle: "Crackle", wheeze: "Wheeze", both: "Wheeze + crackle" } as const;
-const CLASS_ORDER = ["wheeze", "crackle", "both", "none"] as const;
+const CLASS_LABEL = { normal: "Normal", abnormal: "Abnormal" } as const;
+const CLASS_ORDER = ["abnormal", "normal"] as const;
 const pct = (v: number | null | undefined) => (v == null ? "—" : `${Math.round(v * 100)}%`);
 
 const ring =
@@ -300,9 +300,11 @@ const ring =
 
 export function TrendsTab() {
   const { patient: p } = usePatientCtx();
-  const severity = useApi(() => fetchSeverity(p.id), `severity:${p.id}`, { pollMs: POLL_MS.alerts });
+  const classification = useApi(() => fetchClassification(p.id), `classification:${p.id}`, { pollMs: POLL_MS.alerts });
   const trend = useApi(() => fetchTrend(p.id), `trend:${p.id}`, { pollMs: POLL_MS.alerts });
-  const wc = useApi(() => fetchWheezeCrackleHistory(p.id, "7d"), `wc:${p.id}`, { pollMs: 5 * 60_000 });
+  const history = useApi(() => fetchClassificationHistory(p.id, "7d"), `classification-history:${p.id}`, {
+    pollMs: 5 * 60_000,
+  });
   const rr = useApi(
     () => {
       const now = new Date();
@@ -315,14 +317,14 @@ export function TrendsTab() {
   return (
     <div className={stack}>
       <Notice>
-        Hasil skrining memerlukan peninjauan tenaga medis. Model wheeze/crackle ini adalah checkpoint pengembangan, belum
-        divalidasi klinis.
+        Hasil skrining memerlukan peninjauan tenaga medis. Model klasifikasi normal/abnormal ini adalah checkpoint
+        pengembangan, belum divalidasi klinis.
       </Notice>
       <div className={split}>
         <div className={cn(card, cardPad)}>
           <h3>Analisis Suara Paru</h3>
           <p className="text-muted">Hasil segmen terbaru dari empat kanal posterior</p>
-          <Async state={severity} label="Memuat hasil skrining…">
+          <Async state={classification} label="Memuat hasil skrining…">
             {(c) =>
               !c ? (
                 <Empty
@@ -355,19 +357,19 @@ export function TrendsTab() {
                       <div
                         className={ring}
                         style={{
-                          background: `conic-gradient(var(--color-primary) 0 ${Math.round(c.wheeze_crackle_confidence * 100)}%,#e4eeea ${Math.round(c.wheeze_crackle_confidence * 100)}%)`,
+                          background: `conic-gradient(var(--color-primary) 0 ${Math.round(c.confidence * 100)}%,#e4eeea ${Math.round(c.confidence * 100)}%)`,
                         }}
                       >
-                        <strong className="[grid-area:1/1] text-[20px] z-[1]">{pct(c.wheeze_crackle_confidence)}</strong>
+                        <strong className="[grid-area:1/1] text-[20px] z-[1]">{pct(c.confidence)}</strong>
                       </div>
-                      <strong className="text-[13px]">{CLASS_LABEL[c.wheeze_crackle_class] ?? c.wheeze_crackle_class}</strong>
+                      <strong className="text-[13px]">{CLASS_LABEL[c.predicted_class] ?? c.predicted_class}</strong>
                       <br />
                       <small>Confidence</small>
                     </div>
                     <div className="px-[15px] py-1 border-l border-line">
                       <h4 className="text-center mb-3">Probabilitas per kelas</h4>
                       {CLASS_ORDER.map((k) => {
-                        const v = c.wheeze_crackle_probabilities?.[k];
+                        const v = c.probabilities?.[k];
                         return (
                           <div key={k} className="mb-2.5 text-[11px]">
                             <div className="flex justify-between">
@@ -386,8 +388,8 @@ export function TrendsTab() {
                     </div>
                   </div>
                   <p className="text-[11px] text-muted mt-3.5">
-                    Segmen {formatEventTime(c.segment_end)} · model {c.wheeze_crackle_model_version}. Confidence bukan
-                    peluang diagnosis. Interpretasi membutuhkan peninjauan tenaga medis.
+                    Segmen {formatEventTime(c.segment_end)} · model {c.model_version}. Confidence bukan peluang diagnosis.
+                    Interpretasi membutuhkan peninjauan tenaga medis.
                   </p>
                 </>
               )
@@ -405,7 +407,7 @@ export function TrendsTab() {
             />
           </div>
           <div className={cn(card, cardPad)}>
-            <h3>Tren Wheeze/Crackle Terbaru</h3>
+            <h3>Tren Frekuensi Abnormal Terbaru</h3>
             <Async state={trend} label="Memuat tren…">
               {(t) =>
                 !t ? (
@@ -433,12 +435,12 @@ export function TrendsTab() {
       <div className={cn(card, cardPad)}>
         <div className="flex items-center justify-between gap-3 mb-5 *:min-w-0">
           <div>
-            <h3>Frekuensi Wheeze/Crackle</h3>
-            <small>Proporsi segmen berlabel wheeze, crackle, atau keduanya per 6 jam</small>
+            <h3>Frekuensi Abnormal</h3>
+            <small>Proporsi segmen berlabel abnormal per 6 jam</small>
           </div>
           <Pill>7 hari</Pill>
         </div>
-        <Async state={wc} label="Memuat riwayat…">
+        <Async state={history} label="Memuat riwayat…">
           {(data) => <RatioBars data={data} />}
         </Async>
       </div>
@@ -476,7 +478,7 @@ export function TrendsTab() {
 }
 
 /** Batang proporsi per bucket; bucket tanpa segmen dibiarkan kosong (bukan 0%). */
-function RatioBars({ data }: { data: WheezeCrackleHistory }) {
+function RatioBars({ data }: { data: ClassificationHistory }) {
   const total = data.buckets.reduce((sum, b) => sum + b.total, 0);
   if (!total) return <p className="py-10 text-center text-muted text-[13px]">Belum ada hasil klasifikasi pada periode ini.</p>;
   const w = 620;
@@ -495,7 +497,7 @@ function RatioBars({ data }: { data: WheezeCrackleHistory }) {
       viewBox={`0 0 ${w} ${h}`}
       preserveAspectRatio="none"
       role="img"
-      aria-label="Grafik proporsi segmen wheeze/crackle per 6 jam, 7 hari terakhir"
+      aria-label="Grafik proporsi segmen abnormal per 6 jam, 7 hari terakhir"
     >
       {[0, 0.5, 1].map((r) => {
         const y = bottom - r * (bottom - top);

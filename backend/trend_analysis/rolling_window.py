@@ -1,22 +1,16 @@
-"""Rolling window — hitung frekuensi kemunculan wheeze/crackle dari time series
+"""Rolling window — hitung frekuensi kemunculan abnormal dari time series
 hasil klasifikasi per segmen (FR-SW-020, FR-SW-021, SDD_SOFTWARE.md §6).
 
 Fungsi murni, tanpa I/O — input: list event klasifikasi terurut waktu, output:
-list titik (timestamp, frekuensi) yang jadi input untuk moving average + regresi
-linear di trend_detector.py.
-
-🔄 Direvisi 2026-08-17 — `ClassificationEvent` sebelumnya pakai dua bool independen
-(`wheeze_present`/`crackle_present`), TIDAK sesuai skema Model A sungguhan yang
-single-label 4-kelas (INTEGRATION_CONTRACT.md §4.1). Sekarang menyimpan
-`wheeze_crackle_class` langsung; `wheeze_present`/`crackle_present` diturunkan darinya
-sebagai property (kelas "both" berarti KEDUANYA hadir bersamaan).
+list titik (timestamp, frekuensi abnormal) yang jadi input untuk moving average +
+regresi linear di trend_detector.py.
 """
 
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
-WheezeCrackleClass = Literal["none", "crackle", "wheeze", "both"]
+PredictedClass = Literal["normal", "abnormal"]
 
 
 @dataclass(frozen=True)
@@ -24,31 +18,22 @@ class ClassificationEvent:
     """Satu hasil klasifikasi segmen (subset field dari readings_classification)."""
 
     timestamp: datetime
-    wheeze_crackle_class: WheezeCrackleClass
-
-    @property
-    def wheeze_present(self) -> bool:
-        return self.wheeze_crackle_class in ("wheeze", "both")
-
-    @property
-    def crackle_present(self) -> bool:
-        return self.wheeze_crackle_class in ("crackle", "both")
+    predicted_class: PredictedClass
 
 
 @dataclass(frozen=True)
 class FrequencyPoint:
-    """Frekuensi kemunculan wheeze/crackle dalam satu rolling window (per menit)."""
+    """Frekuensi kemunculan abnormal dalam satu rolling window (per menit)."""
 
     window_end: datetime
-    wheeze_frequency: float
-    crackle_frequency: float
+    abnormal_frequency: float
 
 
 def compute_rolling_frequency(
     events: list[ClassificationEvent],
     window_size: int,
 ) -> list[FrequencyPoint]:
-    """Hitung frekuensi wheeze/crackle per rolling window berukuran `window_size` segmen.
+    """Hitung frekuensi abnormal per rolling window berukuran `window_size` segmen.
 
     Window bergeser satu segmen setiap langkah (sliding window, bukan tumbling) supaya
     trend_detector punya cukup titik data untuk regresi meski jumlah segmen historis
@@ -74,14 +59,12 @@ def compute_rolling_frequency(
             # divide-by-zero, anggap durasi minimal 1 segmen (~konservatif, bukan estimasi presisi).
             duration_minutes = 1 / 60
 
-        wheeze_count = sum(1 for e in window if e.wheeze_present)
-        crackle_count = sum(1 for e in window if e.crackle_present)
+        abnormal_count = sum(1 for e in window if e.predicted_class == "abnormal")
 
         points.append(
             FrequencyPoint(
                 window_end=window_end_ts,
-                wheeze_frequency=wheeze_count / duration_minutes,
-                crackle_frequency=crackle_count / duration_minutes,
+                abnormal_frequency=abnormal_count / duration_minutes,
             )
         )
 
