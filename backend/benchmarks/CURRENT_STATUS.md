@@ -1,3 +1,5 @@
+> Audit sebelum merge terbaru: [AUDIT_FEAT_AI_INTEGRATION_2026-10-28.md](AUDIT_FEAT_AI_INTEGRATION_2026-10-28.md). Ditemukan lima blocker yang direproduksi; keputusan saat ini belum merge.
+
 # Status demo PNEUMACARE — 28 Oktober 2026
 
 **Drop audio belum terselesaikan. Ini sekarang terverifikasi pada ESP32 fisik.**
