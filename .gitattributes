@@ -1,3 +1,0 @@
-
-# Patch artifacts include mandatory context-space lines.
-backend/benchmarks/*.patch -whitespace

@@ -32,6 +32,7 @@ yarn-error.log*
 .env*
 # contoh konfigurasi ML service (bukan rahasia, aman di-commit)
 !ml-service/.env.example
+!backend/.env.example
 
 # vercel
 .vercel
@@ -72,8 +73,14 @@ ml-service/.pytest_cache/
 # Isolated demo checkout; managed by git worktree
 .worktrees/
 
-# Active runtime logs; retain versioned summaries separately.
-backend/benchmarks/live-*.log
+# Generated experiment results stay local; reusable code/tests remain versioned.
+/backend/benchmarks/
+/artifacts/
+/logs/
+*.log
+*.tmp
+*.bak
+*~
 
 # Internal documentation stays local; README.md files remain publishable.
 *.md
@@ -86,3 +93,10 @@ backend/benchmarks/live-*.log
 *.ckpt.zip
 ml-service/modules/weights/*
 !ml-service/modules/weights/.gitkeep
+
+# Private short-window audio evidence; never publish raw recordings.
+backend/audio_captures/
+
+# Private evaluation dataset supplied by the project team.
+/test.zip
+/data/evaluation/

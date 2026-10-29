@@ -1,5 +1,0 @@
-{"utc": "2026-10-28T02:54:01.407391+00:00", "elapsed_s": 0.002, "phase": "baseline_on", "power": "on", "signal_dbm": "-75"}
-{"utc": "2026-10-28T02:55:16.912406+00:00", "elapsed_s": 75.507, "phase": "runtime_off", "returncode": 6, "power": "on", "signal_dbm": "-81"}
-{"utc": "2026-10-28T02:55:16.913044+00:00", "elapsed_s": 75.508, "phase": "experiment_unavailable", "error": "Error: Reapplying connection to device 'wlo1' (/org/freedesktop/NetworkManager/Devices/2) failed: Can't reapply changes to '802-11-wireless.powersave' setting"}
-{"utc": "2026-10-28T02:55:16.946014+00:00", "elapsed_s": 75.541, "phase": "finally_restored_default", "returncode": 0, "power": "on", "signal_dbm": "-79"}
-{"utc": "2026-10-28T02:55:17.001920+00:00", "elapsed_s": 75.597, "phase": "capture_end", "power": "on", "signal_dbm": "-79"}
