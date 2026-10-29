@@ -1,6 +1,6 @@
 """Websocket server untuk kanal audio (FR-SW-001, FR-SW-002, FR-SW-005).
 
-Endpoint /ws/audio menerima chunk audio sesuai skema base64 JSON yang diputuskan
+Endpoint /ws/audio menerima JSON/base64 legacy atau frame biner PCA1 sesuai kontrak
 di INTEGRATION_CONTRACT.md §2.3, menyusunnya jadi segmen 5 detik per channel
 (INTEGRATION_CONTRACT.md §4.1), lalu meneruskan tiap segmen genap ke ML service
 via HTTP atau mock_inference hanya bila mode mock dipilih eksplisit.
@@ -26,6 +26,9 @@ from backend.inference.ml_service_client import MLServiceError
 from backend.inference.mock_inference import run_mock_inference
 from backend.ingestion.audio_segment_buffer import AudioSegmentBuffer, Segment
 from backend.ingestion.audio_worker import AudioWorker
+from backend.ingestion.periodic_audio import PeriodicCaptureAssembler
+from backend.ingestion.audio_provenance import parse_provenance
+from backend.ingestion.periodic_inference import process_periodic_capture
 from backend.ingestion.device_registry import upsert_device_seen
 from backend.models import db
 from backend.models.classification import ReadingClassification
@@ -175,6 +178,11 @@ def _persist_cycle_metadata(
 
 
 def _handle_segment(segment: Segment, job=None) -> None:
+    if segment.capture_id is not None or segment.data_origin != 'measured':
+        if job is not None:
+            job.check_cancelled()
+        process_periodic_capture(segment, current_app.config, _classify_input, job)
+        return
     # Retain cycle detection/classification semantics from feat/ai-integration.
     if job is not None:
         job.check_cancelled()
@@ -285,20 +293,44 @@ class AudioConnection:
         self.gaps = 0
         self.invalid = 0
         self.timestamp_fallbacks = 0
+        self.capture = self._new_capture_assembler()
+        self.capture_ack = None
+        self.mode = None
+
+    def _new_capture_assembler(self):
+        config = self.receiver.app.config
+        return PeriodicCaptureAssembler(config['AUDIO_PERIODIC_CAPTURE_MS'],
+                                        config.get('AUDIO_PERIODIC_COMPAT_CAPTURE_MS', ()))
 
     def _reset(self, reason):
         self.cancelled.set()
         self.cancelled = Event()
         discarded = self.buffer.reset_device(self.device_id)
+        discarded += sum(self.capture.offsets.values())
+        if reason in ('stream_change', 'capture_mode_change', 'disconnect', 'replaced'):
+            self.capture = self._new_capture_assembler()
+        else:
+            self.capture.invalidate()
+        self.capture_ack = None
         logger.info("audio_partial_cancel reason=%s device=%s discarded_samples=%d",
                     reason, self.device_id, discarded)
 
     def receive(self, raw_message):
         started = monotonic()
         try:
-            if not isinstance(raw_message, str) or len(raw_message) > 260000:
+            if not isinstance(raw_message, (str, bytes)) or len(raw_message) > 260000:
                 raise ValueError("message size/type")
-            h = json.loads(raw_message)
+            binary = isinstance(raw_message, bytes)
+            if binary:
+                if len(raw_message) < 6 or raw_message[:4] != b'PCA1':
+                    raise ValueError("binary magic/version")
+                header_len = int.from_bytes(raw_message[4:6], 'little')
+                if not 1 <= header_len <= 1024 or len(raw_message) < 6 + header_len:
+                    raise ValueError("binary header length")
+                h = json.loads(raw_message[6:6 + header_len].decode('utf-8'))
+                raw_pcm = raw_message[6 + header_len:]
+            else:
+                h = json.loads(raw_message)
             if not isinstance(h, dict):
                 raise ValueError("JSON object required")
             device = h.get("device_id")
@@ -309,6 +341,7 @@ class AudioConnection:
                     raise ValueError("integer fields")
             if not 1 <= h["channel_id"] <= 4 or h["seq_no"] < 0 or not 0 <= h["timestamp_ms"] < 253402300799000:
                 raise ValueError("channel/sequence/timestamp")
+            origin, source = parse_provenance(h)
             if h["sample_rate"] not in (4000, 8000, 16000, 22000, 44100, 48000):
                 raise ValueError("sample rate")
             if h.get("bit_depth", 16) != 16 or not 0 < h["chunk_duration_ms"] <= 2000:
@@ -319,9 +352,14 @@ class AudioConnection:
                 if (not isinstance(stream, str) or not 1 <= len(stream) <= 64
                         or type(sample_start) is not int or not 0 <= sample_start < 2**64):
                     raise ValueError("continuity metadata pair")
-            if not isinstance(h.get("pcm_base64"), str):
-                raise ValueError("PCM base64 type")
-            pcm = _decode_pcm_base64(h["pcm_base64"])
+            if binary:
+                if 'pcm_base64' in h or len(raw_pcm) % 2:
+                    raise ValueError("binary PCM format")
+                pcm = np.frombuffer(raw_pcm, dtype='<i2')
+            else:
+                if not isinstance(h.get("pcm_base64"), str):
+                    raise ValueError("PCM base64 type")
+                pcm = _decode_pcm_base64(h["pcm_base64"])
             if len(pcm) * 1000 != h["sample_rate"] * h["chunk_duration_ms"]:
                 raise ValueError("PCM count/duration mismatch")
         except (ValueError, TypeError):
@@ -331,7 +369,8 @@ class AudioConnection:
             if self.device_id is not None:
                 self._reset("invalid_frame")
             return False
-        if h["timestamp_ms"] < 1700000000000:
+        periodic = any(k.startswith('capture_') for k in h)
+        if not periodic and h["timestamp_ms"] < 1700000000000:
             h["timestamp_ms"] = int(time() * 1000) - h["chunk_duration_ms"]
             self.timestamp_fallbacks += 1
             if self.timestamp_fallbacks == 1:
@@ -358,20 +397,42 @@ class AudioConnection:
             elif stream != self.stream_id:
                 self._reset("stream_change")
                 self.stream_id = stream
-            segment, gap = self.buffer.add_chunk(
-                device_id=device, channel_id=h["channel_id"], timestamp_ms=h["timestamp_ms"],
-                seq_no=h["seq_no"], chunk_duration_ms=h["chunk_duration_ms"], pcm_samples=pcm,
-                sample_rate=h["sample_rate"], sample_start=sample_start, stream_id=stream)
-            if gap is not None:
-                self.gaps += 1
-                logger.warning("audio_gap device=%s channel=%d reason=%s expected_seq=%d received_seq=%d "
-                               "lost_samples=%s discarded_samples=%d", device, h["channel_id"],
-                               gap.reason, gap.expected_seq_no, gap.received_seq_no,
-                               gap.lost_samples, gap.discarded_samples)
-            if segment is not None:
-                accepted = r.worker.submit(segment, self.cancelled)
-                logger.info("audio_segment_ready device=%s channel=%d accepted=%s", device,
-                            h["channel_id"], accepted)
+            mode = 'periodic' if periodic else 'continuous'
+            if self.mode is not None and mode != self.mode:
+                self._reset('capture_mode_change')
+            self.mode = mode
+            if periodic:
+                try:
+                    segments = self.capture.add(h, pcm)
+                except ValueError:
+                    self.invalid += 1
+                    self.capture_ack = {'type': 'audio_capture_ack',
+                                        'capture_id': h.get('capture_id'), 'status': 'rejected'}
+                    logger.warning('audio_capture_rejected reason=invalid_window device=%s', device)
+                    return False
+                if segments:
+                    accepted = r.worker.submit_batch(segments, self.cancelled)
+                    self.capture_ack = {'type': 'audio_capture_ack',
+                                        'capture_id': h['capture_id'],
+                                        'status': 'accepted' if accepted else 'rejected'}
+                    logger.info('audio_capture_complete device=%s capture=%s duration_ms=%d channels=4 accepted=%s stream=%s',
+                                device, h['capture_id'], h['capture_duration_ms'], accepted, stream)
+            else:
+                segment, gap = self.buffer.add_chunk(
+                    device_id=device, channel_id=h["channel_id"], timestamp_ms=h["timestamp_ms"],
+                    seq_no=h["seq_no"], chunk_duration_ms=h["chunk_duration_ms"], pcm_samples=pcm,
+                    sample_rate=h["sample_rate"], sample_start=sample_start, stream_id=stream,
+                    data_origin=origin, source_channel_id=source)
+                if gap is not None:
+                    self.gaps += 1
+                    logger.warning("audio_gap device=%s channel=%d reason=%s expected_seq=%d received_seq=%d "
+                                   "lost_samples=%s discarded_samples=%d", device, h["channel_id"],
+                                   gap.reason, gap.expected_seq_no, gap.received_seq_no,
+                                   gap.lost_samples, gap.discarded_samples)
+                if segment is not None:
+                    accepted = r.worker.submit(segment, self.cancelled)
+                    logger.info("audio_segment_ready device=%s channel=%d accepted=%s", device,
+                                h["channel_id"], accepted)
         ended = monotonic()
         self.chunks += 1
         self.decode_ms += (decoded - started) * 1000
@@ -418,6 +479,9 @@ def register_websocket_routes(app) -> None:
                 if raw_message is None:
                     break
                 connection.receive(raw_message)
+                if connection.capture_ack is not None:
+                    ws.send(json.dumps(connection.capture_ack))
+                    connection.capture_ack = None
                 if connection.closed:
                     ws.close(reason=1008, message="replaced session")
                     break

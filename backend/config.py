@@ -159,3 +159,14 @@ class Config:
     ML_SERVICE_URL = os.environ.get("ML_SERVICE_URL", "http://127.0.0.1:8000")
     ML_SERVICE_TIMEOUT_SECONDS = float(os.environ.get("ML_SERVICE_TIMEOUT_SECONDS", "30"))
     ML_SERVICE_MODEL_VERSION = os.environ.get("ML_SERVICE_MODEL_VERSION", "ast_model_v1.0")
+
+    # Technical short-window capture experiment, not a validated clinical interval.
+    AUDIO_PERIODIC_CAPTURE_MS = 2000
+    # Permit the previous firmware during a coordinated upgrade; never join windows.
+    AUDIO_PERIODIC_COMPAT_CAPTURE_MS = (500,)
+    AUDIO_CAPTURE_DIRECTORY = os.environ.get("AUDIO_CAPTURE_DIRECTORY", "backend/audio_captures")
+    AUDIO_CAPTURE_QUOTA_BYTES = int(os.environ.get("AUDIO_CAPTURE_QUOTA_BYTES", "67108864"))
+    AUDIO_SHORT_CAPTURE_INFERENCE_ENABLED = False
+    # Experimental predictions are isolated from clinical history and alerts.
+    AUDIO_PERIODIC_SHADOW_INFERENCE_ENABLED = os.environ.get(
+        'AUDIO_PERIODIC_SHADOW_INFERENCE_ENABLED', '0') == '1'

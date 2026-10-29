@@ -1,14 +1,8 @@
-"""Logika murni penyusunan ulang chunk audio kecil menjadi segmen 5 detik
-(INTEGRATION_CONTRACT.md §2.2, §4.1 — durasi segmen model dikoreksi dari asumsi
-awal 10 detik menjadi 5 detik, terverifikasi dari kode preprocessing asli Nathanael).
+"""Pure assembly of contiguous PCM into configurable analysis windows.
 
-Dipisahkan dari I/O (websocket) supaya mudah di-unit-test (FR-SW-002) — lihat pola
-yang sama di trend_analysis (SDD_SOFTWARE.md §6).
-
-⚠️ Sample rate yang disimpan di sini adalah sample rate ASLI FIRMWARE (mis. 16000 Hz,
-dari header chunk — INTEGRATION_CONTRACT.md §2.3), BUKAN 22000 Hz target model.
-Resample ke 22000 Hz dilakukan SEKALI di `inference/preprocessing.py` atas segmen
-5 detik penuh, bukan per-chunk kecil — lihat docstring modul itu untuk alasannya.
+Continuous streams default to five seconds. Explicit periodic recordings use a
+separate bounded assembler; idle gaps are never concatenated. Samples retain their
+source rate here. The AST service handles its own 16 kHz preprocessing.
 """
 
 from dataclasses import dataclass, field
@@ -35,6 +29,10 @@ class Segment:
     segment_end_ms: int
     pcm_samples: np.ndarray
     sample_rate: int
+    capture_id: int | None = None
+    capture_stream_id: str | None = None
+    data_origin: str = 'measured'
+    source_channel_id: int | None = None
 
 
 @dataclass
@@ -47,6 +45,7 @@ class _ChannelBuffer:
     next_sample: int | None = None
     stream_id: str | None = None
     next_timestamp_ms: int | None = None
+    provenance: tuple | None = None
 
 
 class AudioSegmentBuffer:
@@ -71,6 +70,8 @@ class AudioSegmentBuffer:
         sample_rate: int,
         sample_start: int | None = None,
         stream_id: str | None = None,
+        data_origin: str = 'measured',
+        source_channel_id: int | None = None,
     ) -> tuple[Segment | None, GapEvent | None]:
         key = (device_id, channel_id)
         buf = self._buffers.setdefault(key, _ChannelBuffer())
@@ -78,11 +79,14 @@ class AudioSegmentBuffer:
         gap_event: GapEvent | None = None
         reason = None
         lost = None
+        provenance = (data_origin, source_channel_id or channel_id)
         if buf.last_seq_no is not None:
             if buf.stream_id != stream_id:
                 reason = "stream_change"
             elif buf.sample_rate is not None and buf.sample_rate != sample_rate:
                 reason = "format_change"
+            elif buf.provenance != provenance:
+                reason = "provenance_change"
             elif seq_no != buf.last_seq_no + 1:
                 reason = "sequence_gap"
             if reason is None and buf.next_sample != sample_start:
@@ -100,6 +104,7 @@ class AudioSegmentBuffer:
                 buf = _ChannelBuffer()
                 self._buffers[key] = buf
         buf.last_seq_no = seq_no
+        buf.provenance = provenance
         buf.next_sample = sample_start + len(pcm_samples) if sample_start is not None else None
         buf.stream_id = stream_id
         buf.next_timestamp_ms = timestamp_ms + chunk_duration_ms
@@ -119,7 +124,8 @@ class AudioSegmentBuffer:
             # Immutable bytes backing: neither caller nor the next buffer can mutate a job.
             pcm = np.frombuffer(buf.pcm_samples.tobytes(), dtype=np.int16)
             segment = Segment(device_id, channel_id, buf.segment_start_ms,
-                              buf.segment_start_ms + self._segment_duration_ms, pcm, sample_rate)
+                              buf.segment_start_ms + self._segment_duration_ms, pcm, sample_rate,
+                              data_origin=data_origin, source_channel_id=provenance[1])
             buf.pcm_samples = array("h", pcm_samples[take:])
             buf.segment_start_ms = segment.segment_end_ms if take < len(pcm_samples) else None
             buf.accumulated_ms = chunk_duration_ms - take_ms

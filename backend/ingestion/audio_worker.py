@@ -59,19 +59,23 @@ class AudioWorker:
             self.thread.start()
 
     def submit(self, segment, cancelled):
+        return self.submit_batch([segment], cancelled)
+
+    def submit_batch(self, segments, cancelled):
+        """Accept a complete four-channel window atomically or reject all of it."""
         self.start()
         with self._condition:
-            self._counts['received'] += 1
+            self._counts['received'] += len(segments)
             # Remove obsolete session work immediately, freeing PCM memory.
             kept = deque(j for j in self._queue if not j.cancelled.is_set())
             self._counts['cancelled'] += len(self._queue) - len(kept)
             self._queue = kept
-            if self._stopping or len(self._queue) >= self.capacity:
-                self._counts['rejected'] += 1
+            if self._stopping or len(self._queue) + len(segments) > self.capacity:
+                self._counts['rejected'] += len(segments)
                 logger.warning('audio_queue_rejected policy=reject_newest queued=%d', len(self._queue))
                 return False
-            self._queue.append(AudioJob(segment, cancelled, monotonic()))
-            self._counts['accepted'] += 1
+            self._queue.extend(AudioJob(segment, cancelled, monotonic()) for segment in segments)
+            self._counts['accepted'] += len(segments)
             self._counts['high_water'] = max(self._counts['high_water'], len(self._queue))
             self._condition.notify_all()
             return True
@@ -124,9 +128,12 @@ class AudioWorker:
                     self._counts['total_max_ms'] = max(self._counts['total_max_ms'], total_ms)
                     self._active = None
                     self._condition.notify_all()
-                logger.info('audio_job status=%s reason=%s device=%s channel=%s wait_ms=%.3f processing_ms=%.3f total_ms=%.3f stats=%s',
+                logger.info('audio_job status=%s reason=%s device=%s channel=%s capture=%s stream=%s wait_ms=%.3f processing_ms=%.3f total_ms=%.3f stats=%s',
                             status, reason, getattr(job.segment, 'device_id', None),
-                            getattr(job.segment, 'channel_id', None), wait_ms, total_ms - wait_ms, total_ms, self.snapshot())
+                            getattr(job.segment, 'channel_id', None),
+                            getattr(job.segment, 'capture_id', None),
+                            getattr(job.segment, 'capture_stream_id', None),
+                            wait_ms, total_ms - wait_ms, total_ms, self.snapshot())
                 job = None  # release PCM while waiting for next job
 
     def wait_idle(self, timeout=10):

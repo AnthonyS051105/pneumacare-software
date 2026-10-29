@@ -12,7 +12,8 @@ from backend.models import db
 from backend.models.classification import ReadingClassification
 
 
-def test_transport_authorization_invalid_frame_and_result_storage(app):
+@pytest.mark.parametrize('binary', [False, True], ids=['json', 'binary'])
+def test_transport_authorization_invalid_frame_and_result_storage(app, binary):
     app.config['DEVICE_AUTH_TOKEN'] = 'test-only'
     server = make_server('127.0.0.1', 0, app, threaded=True)
     thread = Thread(target=server.serve_forever, daemon=True)
@@ -29,7 +30,11 @@ def test_transport_authorization_invalid_frame_and_result_storage(app):
             socket.send('not valid JSON')
             for seq in range(20):
                 for ch in range(1,5):
-                    socket.send(message(seq,ch))
+                    if binary:
+                        from backend.tests.test_audio_binary import binary_message
+                        socket.send(binary_message(seq, ch))
+                    else:
+                        socket.send(message(seq,ch))
             deadline = monotonic()+5
             while worker.snapshot()['received'] < 4 and monotonic() < deadline:
                 sleep(.01)
