@@ -6,7 +6,7 @@ dicatat lain secara eksplisit.
 
 from datetime import datetime, timedelta, timezone
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 from flask_login import current_user
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -23,6 +23,7 @@ from backend.models.threshold import Threshold
 from backend.models.trend import TrendEvent
 from backend.models.user import User
 from backend.models.vital import ReadingVital
+from backend.ingestion.capture_evidence import latest_capture_evidence
 
 clinician_bp = Blueprint("clinician", __name__, url_prefix="/api/v1")
 
@@ -141,6 +142,17 @@ def get_patient(patient_id: str):
     if isinstance(patient, tuple):
         return patient
     return jsonify(_patient_dict(patient))
+
+
+@clinician_bp.get('/patients/<patient_id>/audio-experiment/latest')
+@role_required('clinician')
+def get_audio_experiment(patient_id: str):
+    patient = _require_owned_patient(patient_id)
+    if isinstance(patient, tuple):
+        return patient
+    device = db.session.query(Device).filter_by(patient_id=patient.id).first()
+    return jsonify(latest_capture_evidence(
+        current_app.config['AUDIO_CAPTURE_DIRECTORY'], device.device_id if device else None))
 
 
 @clinician_bp.post("/patients")
