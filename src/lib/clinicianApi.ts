@@ -51,6 +51,28 @@ export type Classification = {
 
 export type TrendInfo = { window_start: string; window_end: string; slope: number; significant: boolean } | null;
 
+export type AudioExperiment = {
+  available: boolean;
+  classification_validated: false;
+  clinical_alerts_enabled: false;
+  start_ms: number | null;
+  capture_id: number | null;
+  channels: {
+    channel_id: number;
+    data_origin: "measured" | "simulated";
+    source_channel_id: number;
+    inference_status: string;
+    experimental_classification: {
+      predicted_class: "normal" | "abnormal";
+      confidence: number;
+    } | null;
+    review_signal: { type: string; clinical_alert: false; message: string } | null;
+  }[];
+};
+
+export const fetchAudioExperiment = (id: string) =>
+  apiFetch<AudioExperiment>(`/patients/${encodeURIComponent(id)}/audio-experiment/latest`);
+
 export type ClassificationHistory = {
   range: TimeRange;
   start: string;

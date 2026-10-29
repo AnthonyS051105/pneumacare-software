@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { createContext, useContext, useState, type FormEvent, type ReactNode } from "react";
 import { useFeedback } from "@/components/providers/Feedback";
 import { AlertItem } from "@/components/portal/AlertItem";
+import { ExperimentalAudio } from "@/components/portal/ExperimentalAudio";
 import { connectionBar } from "@/components/portal/Connection";
 import { chartGrid, formGrid, split, stack } from "@/components/portal/layout";
 import { Metric, metricsGrid } from "@/components/portal/Metric";
@@ -320,6 +321,7 @@ export function TrendsTab() {
         Hasil skrining memerlukan peninjauan tenaga medis. Model klasifikasi normal/abnormal ini adalah checkpoint
         pengembangan, belum divalidasi klinis.
       </Notice>
+      <ExperimentalAudio patientId={p.id} />
       <div className={split}>
         <div className={cn(card, cardPad)}>
           <h3>Analisis Suara Paru</h3>
