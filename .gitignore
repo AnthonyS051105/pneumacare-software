@@ -100,3 +100,6 @@ backend/audio_captures/
 # Private evaluation dataset supplied by the project team.
 /test.zip
 /data/evaluation/
+
+# Shell launchers remain local by project policy.
+*.sh
