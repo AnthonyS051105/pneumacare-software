@@ -1,9 +1,10 @@
-"""Experimental predictions and review signals, isolated from patient alerts."""
+"""Experimental predictions with optional informational patient notifications."""
 import logging
 from time import monotonic
 
 from backend.ingestion.capture_archive import archive_capture, annotate_capture
 from backend.ingestion.audio_worker import Cancelled
+from backend.alerting.periodic_audio_alerts import notify_periodic_audio
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +15,8 @@ def process_periodic_capture(segment, config, classify, job=None):
     if segment.data_origin != 'measured':
         annotate_capture(target, {'inference_status': 'excluded_simulation'}, quota)
         return
-    if not config.get('AUDIO_PERIODIC_SHADOW_INFERENCE_ENABLED', False):
+    if not (config.get('AUDIO_PERIODIC_SHADOW_INFERENCE_ENABLED', False)
+            or config.get('AUDIO_PERIODIC_PATIENT_ALERTS_ENABLED', False)):
         return
     if not config.get('ML_SERVICE_URL'):
         annotate_capture(target, {'inference_status': 'unavailable'}, quota)
@@ -38,6 +40,10 @@ def process_periodic_capture(segment, config, classify, job=None):
                                  'model_version': result['model_version'],
                                  'review_signal': signal,
                                  'inference_ms': (monotonic() - started) * 1000}, quota)
+        # Archive prediction first; never publish a patient notification for a
+        # capture whose evidence could not be saved. Replay is idempotent in DB.
+        notification = notify_periodic_audio(segment, result, config, job)
+        annotate_capture(target, {'patient_notification': notification}, quota)
         logger.info('audio_experimental_result device=%s channel=%s capture=%s predicted_class=%s '
                     'review_signal=%s clinical_alert=false inference_ms=%.3f',
                     segment.device_id, segment.channel_id, segment.capture_id,

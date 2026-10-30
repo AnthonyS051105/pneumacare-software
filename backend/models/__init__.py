@@ -12,3 +12,4 @@ from backend.models.alert import Alert  # noqa: E402,F401
 from backend.models.threshold import Threshold  # noqa: E402,F401
 from backend.models.action_plan import PatientActionPlan  # noqa: E402,F401
 from backend.models.respiratory_cycle import RespiratoryCycle  # noqa: E402,F401
+from backend.models.periodic_audio_state import PeriodicAudioState  # noqa: E402,F401

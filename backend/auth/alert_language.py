@@ -30,9 +30,22 @@ def _trend_slope_sentence(trigger: dict) -> str:
     return "Pola napas Anda menunjukkan perubahan yang perlu diperhatikan."
 
 
+def _periodic_audio_sentence(trigger: dict) -> str:
+    count = trigger.get('consecutive_abnormal', 1)
+    if count > 1:
+        return (f"Model memberi hasil abnormal pada {count} rekaman suara 2 detik "
+                "terbaru berturut-turut dari mikrofon yang sama. "
+                "Hasil eksperimental ini memerlukan peninjauan tenaga medis "
+                "dan belum merupakan diagnosis.")
+    return ("Model memberi hasil abnormal pada rekaman suara 2 detik. "
+            "Hasil eksperimental ini memerlukan peninjauan rekaman oleh tenaga medis "
+            "dan belum merupakan diagnosis.")
+
+
 _TRIGGER_TYPE_HANDLERS = {
     "vital_threshold": _vital_threshold_sentence,
     "trend_slope": _trend_slope_sentence,
+    "periodic_audio_review": _periodic_audio_sentence,
 }
 
 

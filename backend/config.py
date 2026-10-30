@@ -170,3 +170,15 @@ class Config:
     # Experimental predictions are isolated from clinical history and alerts.
     AUDIO_PERIODIC_SHADOW_INFERENCE_ENABLED = os.environ.get(
         'AUDIO_PERIODIC_SHADOW_INFERENCE_ENABLED', '0') == '1'
+    # Prototype notifications with same-channel persistence escalation.
+    # Enabled for the prototype demo after real-model integration verification.
+    # Set 0 for archive/shadow-only diagnostics. No mock notification fallback.
+    AUDIO_PERIODIC_PATIENT_ALERTS_ENABLED = os.environ.get(
+        'AUDIO_PERIODIC_PATIENT_ALERTS_ENABLED', '1') == '1'
+    # Engineering persistence settings, not validated clinical severity cutoffs.
+    AUDIO_PERIODIC_WARNING_CONSECUTIVE = int(os.environ.get(
+        'AUDIO_PERIODIC_WARNING_CONSECUTIVE', '2'))  # TODO_CLINICAL_VALUE
+    AUDIO_PERIODIC_URGENT_CONSECUTIVE = int(os.environ.get(
+        'AUDIO_PERIODIC_URGENT_CONSECUTIVE', '3'))  # TODO_CLINICAL_VALUE
+    AUDIO_PERIODIC_STREAK_MAX_GAP_SECONDS = float(os.environ.get(
+        'AUDIO_PERIODIC_STREAK_MAX_GAP_SECONDS', '60'))  # availability, not medical

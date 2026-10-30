@@ -12,6 +12,9 @@ class TestConfig(Config):
     SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
     # Paksa mock_inference; test tidak boleh memanggil service ML nyata.
     ML_SERVICE_URL = ""
+    # Baseline tests isolate the optional short-audio notification feature.
+    # test_periodic_patient_alerts enables it and exercises its complete path.
+    AUDIO_PERIODIC_PATIENT_ALERTS_ENABLED = False
 
 
 @pytest.fixture

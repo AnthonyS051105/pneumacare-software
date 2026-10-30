@@ -9,6 +9,8 @@ via HTTP atau mock_inference hanya bila mode mock dipilih eksplisit.
 import base64
 import json
 import logging
+import uuid
+from dataclasses import replace
 from contextlib import contextmanager
 from threading import Event, Lock
 from time import monotonic, time
@@ -287,6 +289,7 @@ class AudioConnection:
         self.device_id = None
         self.stream_id = None
         self.cancelled = Event()
+        self.reception_session_id = str(uuid.uuid4())
         self.closed = False
         self.chunks = 0
         self.decode_ms = self.assemble_ms = self.receive_max_ms = 0.0
@@ -305,6 +308,7 @@ class AudioConnection:
     def _reset(self, reason):
         self.cancelled.set()
         self.cancelled = Event()
+        self.reception_session_id = str(uuid.uuid4())
         discarded = self.buffer.reset_device(self.device_id)
         discarded += sum(self.capture.offsets.values())
         if reason in ('stream_change', 'capture_mode_change', 'disconnect', 'replaced'):
@@ -411,6 +415,8 @@ class AudioConnection:
                     logger.warning('audio_capture_rejected reason=invalid_window device=%s', device)
                     return False
                 if segments:
+                    segments = [replace(s, reception_session_id=self.reception_session_id)
+                                for s in segments]
                     accepted = r.worker.submit_batch(segments, self.cancelled)
                     self.capture_ack = {'type': 'audio_capture_ack',
                                         'capture_id': h['capture_id'],

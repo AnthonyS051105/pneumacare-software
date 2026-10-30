@@ -33,6 +33,8 @@ class Segment:
     capture_stream_id: str | None = None
     data_origin: str = 'measured'
     source_channel_id: int | None = None
+    # Backend-only identity; changes on reconnect/reset, independent of ESP boot.
+    reception_session_id: str | None = None
 
 
 @dataclass
