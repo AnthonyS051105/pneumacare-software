@@ -23,6 +23,13 @@ export type AlertTrigger = {
   threshold?: number | string | null;
   severity?: "breach" | "near" | null;
   slope?: number;
+  channel_id?: number;
+  confidence?: number;
+  model_version?: string;
+  classification_validated?: boolean;
+  consecutive_abnormal?: number;
+  warning_after?: number;
+  urgent_after?: number;
 };
 
 export type ClinicianAlert = {
@@ -55,6 +62,7 @@ export type AudioExperiment = {
   available: boolean;
   classification_validated: false;
   clinical_alerts_enabled: false;
+  patient_notifications_enabled: boolean;
   start_ms: number | null;
   capture_id: number | null;
   channels: {
@@ -67,6 +75,14 @@ export type AudioExperiment = {
       confidence: number;
     } | null;
     review_signal: { type: string; clinical_alert: false; message: string } | null;
+    patient_notification: {
+      status: string;
+      alert_id?: string;
+      level?: number;
+      consecutive_abnormal?: number;
+      warning_after?: number;
+      urgent_after?: number;
+    } | null;
   }[];
 };
 

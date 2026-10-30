@@ -23,6 +23,12 @@ const num = (v: unknown) => (typeof v === "number" ? String(Math.round(v * 100) 
 
 /** "SpO₂ 91% < ambang 92%" / "HR 118 bpm mendekati ambang 120 bpm" / "Tren frekuensi abnormal naik (slope 0.14; ambang 0.05)". */
 export function triggerText(t: AlertTrigger): string {
+  if (t.type === "periodic_audio_review") {
+    return `Prediksi abnormal pada rekaman 2 detik kanal ${t.channel_id ?? "—"}; hasil eksperimental ` +
+      `model ${t.model_version ?? "—"}, confidence ${typeof t.confidence === "number" ? Math.round(t.confidence * 100) + "%" : "—"}; ` +
+      `${t.consecutive_abnormal ?? 1} hasil abnormal terbaru berturut-turut ` +
+      `(Warning ${t.warning_after ?? 2}, Urgent ${t.urgent_after ?? 3}); tinjau rekaman`;
+  }
   const { label, unit } = param(t.parameter, t.type);
   if (t.type === "vital_threshold") {
     // Trigger lama/tidak lengkap tanpa angka: jangan tampilkan "—%" yang membingungkan.
@@ -45,6 +51,11 @@ export function triggerText(t: AlertTrigger): string {
 /** Judul ringkas. Level 3 dibedakan antara eskalasi tren persisten dan multi-trigger (kontrak §5.1). */
 export function alertTitle(a: Pick<ClinicianAlert, "level" | "triggers">): string {
   const [first] = a.triggers;
+  if (first?.type === "periodic_audio_review") {
+    return a.level === 3 ? "Prediksi audio abnormal berulang — prioritas tinggi"
+      : a.level === 2 ? "Prediksi audio abnormal berulang"
+      : "Tinjau hasil klasifikasi audio eksperimental";
+  }
   if (a.level === 3) {
     if (a.triggers.length >= 2) return "Multi-parameter kritis";
     if (first?.type === "trend_slope") return "Tren memburuk konsisten";
