@@ -1,5 +1,5 @@
 """TEMPORARY_DEV_AUTH — skrip demo untuk menautkan device_id hardware ASLI
-(bukan device dummy seed_dev_patient.py) ke akun pasien + clinician test,
+(bukan device dummy development) ke akun pasien + clinician test,
 supaya data dari board ESP32 sungguhan langsung muncul di dashboard clinician
 saat demo 50%.
 
