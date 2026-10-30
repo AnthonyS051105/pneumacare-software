@@ -152,7 +152,8 @@ def get_audio_experiment(patient_id: str):
         return patient
     device = db.session.query(Device).filter_by(patient_id=patient.id).first()
     return jsonify(latest_capture_evidence(
-        current_app.config['AUDIO_CAPTURE_DIRECTORY'], device.device_id if device else None))
+        current_app.config['AUDIO_CAPTURE_DIRECTORY'], device.device_id if device else None,
+        current_app.config['AUDIO_PERIODIC_PATIENT_ALERTS_ENABLED']))
 
 
 @clinician_bp.post("/patients")

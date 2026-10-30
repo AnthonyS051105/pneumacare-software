@@ -48,3 +48,13 @@ def test_experimental_audio_missing_directory_returns_empty(app, client, tmp_pat
     _login_clinician(client)
     app.config['AUDIO_CAPTURE_DIRECTORY'] = str(tmp_path/'not-created')
     assert client.get(URL).get_json()['available'] is False
+
+
+def test_experimental_api_reports_patient_notification_mode_without_claiming_validation(app, client):
+    _seed_clinician_with_patient(app)
+    _login_clinician(client)
+    app.config['AUDIO_PERIODIC_PATIENT_ALERTS_ENABLED'] = True
+    body = client.get(URL).get_json()
+    assert body['patient_notifications_enabled'] is True
+    assert body['clinical_alerts_enabled'] is False
+    assert body['classification_validated'] is False

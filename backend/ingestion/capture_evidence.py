@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 
 
-def latest_capture_evidence(directory, device_id):
+def latest_capture_evidence(directory, device_id, patient_notifications_enabled=False):
     latest = None
     channels = {}
     for path in Path(directory).glob('*.json'):
@@ -22,11 +22,13 @@ def latest_capture_evidence(directory, device_id):
             if key == latest:
                 channels[channel] = {k: item.get(k) for k in (
                     'channel_id', 'data_origin', 'source_channel_id', 'inference_status',
-                    'experimental_classification', 'model_version', 'review_signal', 'inference_ms')}
+                    'experimental_classification', 'model_version', 'review_signal', 'inference_ms',
+                    'patient_notification')}
         except (OSError, ValueError, KeyError, TypeError):
             # Retention/atomic sidecar replacement may race with a read.
             continue
     return dict(available=latest is not None, classification_validated=False,
+                patient_notifications_enabled=patient_notifications_enabled,
                 clinical_alerts_enabled=False, start_ms=latest[0] if latest else None,
                 capture_id=latest[2] if latest else None,
                 channels=[channels[k] for k in sorted(channels)])
