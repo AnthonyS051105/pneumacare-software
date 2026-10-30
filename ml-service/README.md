@@ -1,7 +1,7 @@
 # PneumaCare ML Service
 
 Service FastAPI untuk klasifikasi suara paru 2 kelas (`0` = normal,
-`1` = abnormal). Service ini dipanggil oleh backend melalui HTTP dan dipisahkan
+`1` = abnormal) menggunakan EfficientNet-B0. Service ini dipanggil oleh backend melalui HTTP dan dipisahkan
 dari frontend/backend agar proses inference berat tidak membebani proses Flask.
 
 ## Struktur
@@ -9,8 +9,8 @@ dari frontend/backend agar proses inference berat tidak membebani proses Flask.
 ```text
 ml-service/
 ├── main.py                 # FastAPI: /health dan /predict
-├── modules/model.py        # arsitektur AST + preprocessing audio
-├── modules/weights/        # best.ckpt (982 MB, tidak di-commit)
+├── modules/model.py        # arsitektur EfficientNet-B0 + preprocessing audio
+├── modules/weights/        # best_effnet.ckpt (47 MB, tidak di-commit)
 ├── samples/                # contoh WAV untuk uji manual
 ├── requirements.txt
 └── .env.example
@@ -38,19 +38,22 @@ lokal; repository dapat dijalankan melalui perintah Python di atas.
 
 ## Checkpoint
 
-- Lokasi default: `ml-service/modules/weights/best.ckpt` (sekitar 982 MB).
+- Lokasi default: `ml-service/modules/weights/best_effnet.ckpt` (sekitar 47 MB).
 - File ini **tidak boleh di-commit**; root `.gitignore` sudah mengabaikan `*.ckpt`.
 - Jika checkpoint tidak ada, service tetap boot, tetapi `/health` melaporkan
   `model_loaded: false` dan `/predict` mengembalikan HTTP 503.
 - Override path lewat environment atau `ml-service/.env`:
 
 ```bash
-export CHECKPOINT_PATH=/path/absolut/best.ckpt
+export CHECKPOINT_PATH=/path/absolut/best_effnet.ckpt
 # Atau path relatif terhadap folder ml-service:
-export CHECKPOINT_PATH=modules/weights/best.ckpt
+export CHECKPOINT_PATH=modules/weights/best_effnet.ckpt
 ```
 
 Path relatif dihitung dari folder `ml-service/`, bukan dari direktori kerja.
+Jika `.env` atau environment shell masih mengarah ke checkpoint AST, sesuaikan
+`CHECKPOINT_PATH` ke checkpoint EfficientNet di atas. Backend memakai versi default
+`efficientnet_b0_v1.0`; sesuaikan juga `ML_SERVICE_MODEL_VERSION` jika di-override.
 
 ## Menjalankan seluruh sistem
 
@@ -90,10 +93,14 @@ curl -s -F "file=@ml-service/samples/normal.wav" http://127.0.0.1:8000/predict
 
 ## Catatan
 
-- Model memakai feature extractor
+- Preprocessing tetap memakai `ASTFeatureExtractor` dengan konfigurasi
   `MIT/ast-finetuned-audioset-10-10-0.4593` dari Hugging Face. Di mesin ini
   cache-nya sudah tersedia; mesin baru memerlukan akses internet saat pertama
-  kali model asli dimuat.
+  kali konfigurasi extractor dimuat. Ini menghasilkan log-Mel yang sama seperti
+  saat training EfficientNet; model AST tidak dimuat.
+- `forward()` mengubah log-Mel `(B, waktu, frekuensi)` menjadi
+  `(B, 3, frekuensi, waktu)`. Logits EfficientNet diubah dengan softmax menjadi
+  probabilitas `[p_normal, p_abnormal]`, tanpa voting.
 - Perintah di atas bind ke `127.0.0.1:8000` untuk penggunaan lokal.
 - Jangan memindahkan/mengganti nama `modules/` atau `modules/model.py` tanpa
   menyesuaikan checkpoint dan `main.py`.

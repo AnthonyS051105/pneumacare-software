@@ -10,7 +10,7 @@ Repository ini memuat sisi software PNEUMACARE:
 
 - **Dashboard web** — Next.js dan TypeScript, dengan portal pasien dan tenaga medis, riwayat pengukuran, notifikasi, serta pengaturan ambang.
 - **Backend** — Flask dan SQLAlchemy untuk autentikasi, pengelolaan perangkat, penerimaan audio melalui WebSocket, penerimaan PPG/status melalui MQTT, penyimpanan hasil, analisis tren, dan evaluasi peringatan.
-- **ML service** — FastAPI dengan model Audio Spectrogram Transformer (AST) untuk klasifikasi suara paru dua kelas: `normal` dan `abnormal`.
+- **ML service** — FastAPI dengan model EfficientNet-B0 untuk klasifikasi suara paru dua kelas: `normal` dan `abnormal`.
 - **Integrasi perangkat** — komunikasi dengan firmware ESP32 yang dikelola pada direktori hardware proyek induk.
 
 Audio diterima pada 16 kHz per channel. Sistem mendukung segmen kontinu lima detik dan rekaman berkala dua detik dengan interval awal minimum 20 detik. Chunk dikirim sejak perekaman berlangsung, sedangkan antrean terbatas memisahkan penerimaan dari inferensi. Rekaman berkala dapat diarsipkan dan diklasifikasikan secara eksperimental, dengan hasil terpisah dari riwayat klasifikasi, tren, dan alert pasien.

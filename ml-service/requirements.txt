@@ -10,6 +10,7 @@ numpy==2.1.2
 # librosa 1.0 requires scipy>=1.15; previous 1.14.1 pin was unsatisfiable.
 scipy==1.15.3
 torch==2.14.1+cpu
+torchvision==0.29.1+cpu
 pytorch-lightning==2.6.6
 torchmetrics==1.9.0
 transformers==5.20.2

@@ -10,11 +10,8 @@ from torchmetrics.classification import (
     MulticlassAccuracy,
     MulticlassF1Score,
 )
-from transformers import (
-    ASTConfig,
-    ASTForAudioClassification,
-    get_cosine_schedule_with_warmup,
-)
+from torchvision.models import EfficientNet_B0_Weights, efficientnet_b0
+from transformers import get_cosine_schedule_with_warmup
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -24,30 +21,6 @@ MAX_LEN = 512
 SR = 16000
 DURATION = 5
 TARGET_LENGTH = SR * DURATION
-
-def crop_ast_position_embeddings(model, max_length):
-    emb = model.audio_spectrogram_transformer.embeddings
-    cfg = model.config
-
-    f_dim = (cfg.num_mel_bins - cfg.patch_size) // cfg.frequency_stride + 1
-    old_t = (cfg.max_length - cfg.patch_size) // cfg.time_stride + 1
-    new_t = (max_length - cfg.patch_size) // cfg.time_stride + 1
-    if new_t > old_t:
-        raise ValueError("max_length baru tidak boleh lebih besar dari bawaan.")
-
-    pos = emb.position_embeddings.data
-    special, patch = pos[:, :2], pos[:, 2:]
-    D = patch.shape[-1]
-
-    patch = patch.reshape(1, f_dim, old_t, D)
-    start = (old_t - new_t) // 2
-    patch = patch[:, :, start:start + new_t, :]
-    patch = patch.reshape(1, f_dim * new_t, D)
-
-    emb.position_embeddings = nn.Parameter(torch.cat([special, patch], dim=1))
-    cfg.max_length = max_length
-    emb.config.max_length = max_length
-    return model
 
 def fix_length(y):
     y = np.asarray(y, dtype=np.float32)
@@ -65,9 +38,10 @@ def fix_length(y):
 
     return y.astype(np.float32)
 
-class RespiratoryAST(pl.LightningModule):
+class RespiratoryClassifier(pl.LightningModule):
     def __init__(
         self,
+        model_type="efficientnet_b0",
         num_classes=2,
         learning_rate=3e-5,
         weight_decay=1e-2,
@@ -78,16 +52,13 @@ class RespiratoryAST(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters()
 
-        if pretrained:
-            self.model = ASTForAudioClassification.from_pretrained(
-                MODEL_NAME,
-                num_labels=num_classes,
-                ignore_mismatched_sizes=True,
-            )
-            crop_ast_position_embeddings(self.model, max_length)
-        else:
-            config = ASTConfig(max_length=max_length, num_labels=num_classes)
-            self.model = ASTForAudioClassification(config)
+        if model_type != "efficientnet_b0":
+            raise ValueError("model_type harus 'efficientnet_b0'")
+        weights = EfficientNet_B0_Weights.DEFAULT if pretrained else None
+        self.model = efficientnet_b0(weights=weights)
+        self.model.classifier[-1] = nn.Linear(
+            self.model.classifier[-1].in_features, num_classes
+        )
 
         self.criterion = nn.CrossEntropyLoss()
 
@@ -98,7 +69,8 @@ class RespiratoryAST(pl.LightningModule):
         self.test_f1 = MulticlassF1Score(num_classes=num_classes, average="macro")
 
     def forward(self, x):
-        return self.model(input_values=x).logits
+        x = x.transpose(1, 2).unsqueeze(1).repeat(1, 3, 1, 1)
+        return self.model(x)
 
     def training_step(self, batch, batch_idx):
         x, y = batch
@@ -180,6 +152,7 @@ class LungSoundClassifier:
         try:
             self.model.eval()
             x = self.preprocess(input_data).unsqueeze(0)
+            x = x.to(next(self.model.parameters()).device)
             preprocessed_at = monotonic()
             input_device = str(x.device)
             with torch.no_grad():

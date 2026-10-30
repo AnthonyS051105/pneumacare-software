@@ -158,7 +158,7 @@ class Config:
     # Kosongkan ML_SERVICE_URL untuk memaksa mock_inference tanpa koneksi HTTP (dipakai di test).
     ML_SERVICE_URL = os.environ.get("ML_SERVICE_URL", "http://127.0.0.1:8000")
     ML_SERVICE_TIMEOUT_SECONDS = float(os.environ.get("ML_SERVICE_TIMEOUT_SECONDS", "30"))
-    ML_SERVICE_MODEL_VERSION = os.environ.get("ML_SERVICE_MODEL_VERSION", "ast_model_v1.0")
+    ML_SERVICE_MODEL_VERSION = os.environ.get("ML_SERVICE_MODEL_VERSION", "efficientnet_b0_v1.0")
 
     # Technical short-window capture experiment, not a validated clinical interval.
     AUDIO_PERIODIC_CAPTURE_MS = 2000

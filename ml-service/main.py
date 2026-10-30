@@ -9,7 +9,7 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 
-from modules.model import LungSoundClassifier, RespiratoryAST
+from modules.model import LungSoundClassifier, RespiratoryClassifier
 
 # Include model stage timings when launched directly or through uvicorn.
 logging.basicConfig(level=logging.INFO,
@@ -30,7 +30,7 @@ def _resolve_checkpoint_path(value: str) -> Path:
 
 
 CHECKPOINT_PATH = _resolve_checkpoint_path(
-    os.getenv("CHECKPOINT_PATH", "modules/weights/best.ckpt")
+    os.getenv("CHECKPOINT_PATH", "modules/weights/best_effnet.ckpt")
 )
 
 
@@ -42,7 +42,10 @@ async def lifespan(app: FastAPI):
     global classifier
     if CHECKPOINT_PATH.exists():
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        module = RespiratoryAST.load_from_checkpoint(str(CHECKPOINT_PATH), map_location=device, pretrained=False)
+        module = RespiratoryClassifier.load_from_checkpoint(
+            str(CHECKPOINT_PATH), map_location=device,
+            model_type="efficientnet_b0", pretrained=False,
+        )
         module.to(device).eval()
         classifier = LungSoundClassifier(module)
         print(f"Model loaded from {CHECKPOINT_PATH} on {device}")
